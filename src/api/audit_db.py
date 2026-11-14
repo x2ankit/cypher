@@ -76,53 +76,70 @@ def log_event(audit_id: str, stage: str, operation: str, inputs: Dict[str, Any],
               error_details: str = "") -> Dict[str, Any]:
     init_db()
     
-    seq = get_next_sequence(audit_id)
-    timestamp = time.time()
-    
-    event = {
-        "audit_id": audit_id,
-        "sequence_number": seq,
-        "timestamp_utc": timestamp,
-        "stage": stage,
-        "operation": operation,
-        "inputs": json.dumps(inputs),
-        "formula": formula,
-        "intermediate_values": json.dumps(intermediate),
-        "result": result,
-        "thresholds": thresholds,
-        "decision": decision,
-        "evidence_id": evidence_id,
-        "duration_ms": duration_ms,
-        "status": status,
-        "error_details": error_details
-    }
-    
-    last_hash = get_last_hash(audit_id)
-    canonical = _canonicalize_event(event)
-    combined = canonical + last_hash.encode('utf-8')
-    event_hash = hashlib.sha256(combined).hexdigest()
-    event["event_hash"] = event_hash
-    
     db_path = get_db_path()
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO audit_events (
-            audit_id, sequence_number, timestamp_utc, stage, operation, inputs, 
-            formula, intermediate_values, result, thresholds, decision, 
-            evidence_id, duration_ms, status, error_details, event_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        event["audit_id"], event["sequence_number"], event["timestamp_utc"], 
-        event["stage"], event["operation"], event["inputs"], event["formula"], 
-        event["intermediate_values"], event["result"], event["thresholds"], 
-        event["decision"], event["evidence_id"], event["duration_ms"], 
-        event["status"], event["error_details"], event["event_hash"]
-    ))
-    conn.commit()
-    conn.close()
-    
-    return event
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        
+        # Atomically get next sequence number
+        cursor.execute('SELECT MAX(sequence_number) FROM audit_events WHERE audit_id = ?', (audit_id,))
+        row_seq = cursor.fetchone()
+        seq = (row_seq[0] or 0) + 1 if row_seq else 1
+        
+        # Atomically get last hash
+        cursor.execute('''
+            SELECT event_hash FROM audit_events 
+            WHERE audit_id = ? 
+            ORDER BY sequence_number DESC LIMIT 1
+        ''', (audit_id,))
+        row_hash = cursor.fetchone()
+        last_hash = row_hash[0] if row_hash else "0000000000000000000000000000000000000000000000000000000000000000"
+
+        timestamp = time.time()
+        event = {
+            "audit_id": audit_id,
+            "sequence_number": seq,
+            "timestamp_utc": timestamp,
+            "stage": stage,
+            "operation": operation,
+            "inputs": json.dumps(inputs),
+            "formula": formula,
+            "intermediate_values": json.dumps(intermediate),
+            "result": result,
+            "thresholds": thresholds,
+            "decision": decision,
+            "evidence_id": evidence_id,
+            "duration_ms": duration_ms,
+            "status": status,
+            "error_details": error_details
+        }
+        
+        canonical = _canonicalize_event(event)
+        combined = canonical + last_hash.encode('utf-8')
+        event_hash = hashlib.sha256(combined).hexdigest()
+        event["event_hash"] = event_hash
+        
+        cursor.execute('''
+            INSERT INTO audit_events (
+                audit_id, sequence_number, timestamp_utc, stage, operation, inputs, 
+                formula, intermediate_values, result, thresholds, decision, 
+                evidence_id, duration_ms, status, error_details, event_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            event["audit_id"], event["sequence_number"], event["timestamp_utc"], 
+            event["stage"], event["operation"], event["inputs"], event["formula"], 
+            event["intermediate_values"], event["result"], event["thresholds"], 
+            event["decision"], event["evidence_id"], event["duration_ms"], 
+            event["status"], event["error_details"], event["event_hash"]
+        ))
+        conn.commit()
+        return event
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 def get_events(audit_id: str) -> List[Dict[str, Any]]:
     db_path = get_db_path()

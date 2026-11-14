@@ -39,21 +39,24 @@ TRUSTTRACE CV
 │   └── cli.py            # Typer-based command-line interface
 ├── scripts/              # Independent execution and generation scripts
 │   ├── generate_fixtures.py
+│   ├── generate_benchmark.py
+│   ├── run_benchmark.py
 │   └── demo_behavior.py
-├── tests/                # 88+ automated pytest cases
+├── tests/                # 155 automated pytest cases (cryptographic integrity, provenance, dataset benchmarking)
 └── docs/                 # Comprehensive documentation
 ```
 
 ## Data Flow
 
-1. **Dataset Audit:** User provides dataset path -> `dataset/inspector.py` extracts metadata -> `dataset/security_checks.py` runs statistical checks (including Distribution Shift) -> `CleanVision` adapter runs -> Findings array generated.
-2. **Model Audit:** User provides artifact + manifest -> `models/integrity.py` structurally validates format (PyTorch/ONNX) and verifies RSA signature -> Integration adapters (ART, BackdoorBench, TrojAI, Cosign) run -> Findings array generated.
-3. **Inference Audit:** User provides `.jsonl` inference log -> `inference/verifier.py` validates canonical hashes, HMAC-SHA256 signatures, and replays -> Findings array generated.
-4. **Full Audit:** Integrates all the above, computes `Cleanlab` label issues, calculates CV Performance (AP/mAP, IoU) and Behavioral Fingerprints, then constructs an `in-toto` provenance chain.
-5. **Report Generation:** `reporting/report_generator.py` aggregates all findings, determines a unified verdict, calculates severity, and emits a structured JSON report.
+1. **Dataset Audit:** User provides dataset path -> `dataset/inspector.py` extracts metadata -> `dataset/security_checks.py` runs statistical checks (flooding, flipping, triggers, poisoning, OOD) -> `CleanVision` adapter runs -> Complete findings array generated.
+2. **Model Audit:** User provides artifact + manifest -> `models/integrity.py` structurally validates format safely (`weights_only=True` for PyTorch) and verifies cryptographic signatures (HMAC or RSA) -> Integration adapters run -> Findings array generated.
+3. **Inference Audit:** User provides `.jsonl` inference log -> `inference/verifier.py` validates canonical hashes, HMAC-SHA256 signatures, sequence monotonicity, and replays -> Findings array generated.
+4. **Full Audit:** Integrates all the above, computes `Cleanlab` label issues, calculates CV Performance (AP/mAP, IoU) and Behavioral Fingerprints, then constructs local provenance metadata.
+5. **Report Generation:** `reporting/report_generator.py` aggregates all findings, determines an explicit verdict (`PASS`, `ANOMALIES_DETECTED`, `FAIL`, `INCONCLUSIVE`, `NOT_ASSESSED`), calculates evaluation coverage, and emits structured JSON/HTML reports.
 
 ## Upstream Integrations
 
-To comply with the offline requirement and minimize dependency bloat, upstream repositories are integrated via explicit Adapters (`src/integrations`). 
-- **CleanVision**, **Cleanlab**, **in-toto**, and **Cosign** adapters execute active checks if libraries/data are available locally.
-- **ART**, **BackdoorBench**, and **TrojAI** adapters emit `NOT_ASSESSED` findings natively gracefully if the gigabyte-scale datasets or heavy dependencies are missing.
+To comply with the offline requirement and eliminate false security claims, upstream repositories are integrated via explicit Adapters (`src/integrations`):
+- **CleanVision** and **Cleanlab**: Execute genuine checks if dependencies and datasets are present locally; emit `NOT_ASSESSED` when libraries or required references are absent.
+- **IBM ART**, **BackdoorBench**, and **TrojAI**: Structural adapters that emit honest `NOT_ASSESSED` findings in default offline environments rather than simulated passes.
+- **in-toto** and **Cosign**: Generate verifiable local provenance structures; external attestations/signatures return `NOT_ASSESSED` when CLI/certificate infrastructure is unconfigured.

@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import urllib.parse
+import re
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
@@ -33,6 +34,7 @@ from src.dataset.security_checks import (
     check_label_flipping,
     check_trigger_patterns,
     check_data_poisoning,
+    check_ood_samples,
 )
 from src.models.integrity import inspect_model, load_manifest
 from src.inference.verifier import (
@@ -49,9 +51,32 @@ REPORTS_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR = ROOT / "data" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Resource limits for upload & extraction safety
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024       # 50 MB
+MAX_EXTRACT_FILES = 1000                  # Maximum files in zip
+MAX_EXTRACT_SIZE = 100 * 1024 * 1024      # 100 MB uncompressed limit
+
+_AUDIT_ID_REGEX = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
+
+def validate_audit_id(audit_id: str) -> str:
+    """Validate that audit_id is an alphanumeric/hyphen/underscore token without traversal chars."""
+    if not audit_id or not _AUDIT_ID_REGEX.match(audit_id):
+        raise HTTPException(400, "Invalid audit identifier.")
+    return audit_id
+
+def safe_resolve(path_str: str, base_dir: Path = ROOT) -> Path:
+    """Safely resolve path within base_dir, preventing path traversal attacks."""
+    resolved_base = base_dir.resolve()
+    try:
+        target = (resolved_base / path_str).resolve()
+        target.relative_to(resolved_base)
+        return target
+    except (ValueError, RuntimeError):
+        raise HTTPException(403, "Access denied: path traversal attempt detected.")
+
 app = FastAPI(
-    title="TRUSTTRACE CV",
-    description="SIH26228 – Computer Vision Assurance System",
+    title="TrustTrace CV",
+    description="Computer Vision Assurance System",
     version="1.0.0",
 )
 
@@ -64,6 +89,7 @@ class DatasetAuditRequest(BaseModel):
     format: str = "yolo"
     seed: int = 42
     audit_id: str = ""
+    reference_dataset_path: Optional[str] = None
 
 class ModelAuditRequest(BaseModel):
     model_path: str
@@ -79,6 +105,7 @@ class FullAuditRequest(BaseModel):
     model_path: Optional[str] = None
     manifest_path: Optional[str] = None
     inference_log: Optional[str] = None
+    reference_dataset_path: Optional[str] = None
     seed: int = 42
 
 class UploadResponse(BaseModel):
@@ -95,21 +122,68 @@ async def upload_dataset(file: UploadFile = File(...), format: str = Form("yolo"
     if not file.filename.endswith('.zip'):
         raise HTTPException(400, "Only .zip files are supported for dataset uploads.")
     
+    clean_filename = Path(file.filename).name
     uid = str(uuid.uuid4())[:8]
     ds_dir = UPLOADS_DIR / f"dataset_{uid}"
-    ds_dir.mkdir()
+    ds_dir.mkdir(parents=True, exist_ok=True)
     
-    zip_path = ds_dir / file.filename
+    zip_path = ds_dir / clean_filename
+    total_size = 0
     with open(zip_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        while chunk := await file.read(65536):
+            total_size += len(chunk)
+            if total_size > MAX_UPLOAD_SIZE:
+                zip_path.unlink(missing_ok=True)
+                shutil.rmtree(ds_dir, ignore_errors=True)
+                raise HTTPException(413, f"Upload exceeds maximum size limit of {MAX_UPLOAD_SIZE // (1024*1024)}MB.")
+            f.write(chunk)
         
     try:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(ds_dir)
+            infolist = zip_ref.infolist()
+            if len(infolist) > MAX_EXTRACT_FILES:
+                raise HTTPException(400, f"Zip contains too many files ({len(infolist)} > {MAX_EXTRACT_FILES}).")
+            
+            total_uncompressed = sum(info.file_size for info in infolist)
+            if total_uncompressed > MAX_EXTRACT_SIZE:
+                raise HTTPException(400, f"Zip uncompressed size exceeds limit ({total_uncompressed} > {MAX_EXTRACT_SIZE} bytes).")
+
+            resolved_ds_dir = ds_dir.resolve()
+            actual_extracted = 0
+            for member in infolist:
+                # Zip Slip path traversal verification
+                target_path = (ds_dir / member.filename).resolve()
+                try:
+                    target_path.relative_to(resolved_ds_dir)
+                except ValueError:
+                    raise HTTPException(400, f"Malicious path traversal entry in zip: {member.filename}")
+
+                # Reject symlinks to prevent arbitrary symlink traversal
+                if (member.external_attr >> 16) & 0o170000 == 0o120000:
+                    raise HTTPException(400, f"Symlinks are not permitted in dataset zip: {member.filename}")
+
+                if member.is_dir():
+                    target_path.mkdir(parents=True, exist_ok=True)
+                    continue
+
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                with zip_ref.open(member) as src_f, open(target_path, "wb") as dst_f:
+                    while chunk := src_f.read(65536):
+                        actual_extracted += len(chunk)
+                        if actual_extracted > MAX_EXTRACT_SIZE:
+                            raise HTTPException(400, f"Zip uncompressed size exceeds limit ({MAX_EXTRACT_SIZE // (1024*1024)}MB).")
+                        dst_f.write(chunk)
     except zipfile.BadZipFile:
+        shutil.rmtree(ds_dir, ignore_errors=True)
         raise HTTPException(400, "Invalid zip file.")
+    except Exception as e:
+        shutil.rmtree(ds_dir, ignore_errors=True)
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(400, f"Extraction failed: {str(e)}")
     finally:
-        zip_path.unlink()
+        if zip_path.exists():
+            zip_path.unlink()
         
     # Attempt to find the inner directory if it was zipped as a single folder
     contents = list(ds_dir.iterdir())
@@ -132,19 +206,15 @@ async def upload_dataset(file: UploadFile = File(...), format: str = Form("yolo"
 
 @app.get("/api/image")
 def get_image(path: str):
-    # path could be url encoded
     path = urllib.parse.unquote(path)
-    p = ROOT / path
-    if not p.exists() or not p.is_file():
+    target = safe_resolve(path, ROOT)
+    if not target.exists() or not target.is_file():
         raise HTTPException(404, "Image not found.")
-    try:
-        p.resolve().relative_to(ROOT.resolve())
-    except ValueError:
-        raise HTTPException(403, "Access denied.")
-    return FileResponse(p)
+    return FileResponse(target)
 
 @app.get("/api/audit/records/{audit_id}")
 def get_audit_records(audit_id: str):
+    validate_audit_id(audit_id)
     p = REPORTS_DIR / f"records_{audit_id}.json"
     if p.exists():
         with open(p, "r", encoding="utf-8") as f:
@@ -153,6 +223,7 @@ def get_audit_records(audit_id: str):
 
 @app.get("/api/reports/html/{audit_id}")
 def download_html_report(audit_id: str):
+    validate_audit_id(audit_id)
     try:
         from src.reporting.html_generator import generate_offline_html_report
         html_content = generate_offline_html_report(audit_id)
@@ -166,12 +237,13 @@ def download_html_report(audit_id: str):
 
 @app.get("/api/image/find")
 def find_image(dataset_path: str, filename: str):
-    dataset_dir = ROOT / urllib.parse.unquote(dataset_path)
-    if not dataset_dir.exists():
+    dataset_dir = safe_resolve(urllib.parse.unquote(dataset_path), ROOT)
+    if not dataset_dir.exists() or not dataset_dir.is_dir():
         raise HTTPException(404, "Dataset directory not found.")
     
+    safe_name = Path(filename).name
     # Try finding the file recursively
-    for p in dataset_dir.rglob(filename):
+    for p in dataset_dir.rglob(safe_name):
         if p.is_file():
             return FileResponse(p)
             
@@ -197,6 +269,7 @@ from src.api.audit_db import log_event, get_events, init_db
 
 @app.get("/api/audit/events/{audit_id}")
 def get_audit_events(audit_id: str):
+    validate_audit_id(audit_id)
     return {"events": get_events(audit_id)}
 
 @app.get("/api/reports")
@@ -218,13 +291,15 @@ def audit_dataset(req: DatasetAuditRequest, background_tasks: BackgroundTasks):
     import uuid
     if not req.audit_id:
         req.audit_id = str(uuid.uuid4())
+    else:
+        validate_audit_id(req.audit_id)
     
     background_tasks.add_task(run_dataset_audit_task, req)
     return {"status": "started", "audit_id": req.audit_id}
 
 def run_dataset_audit_task(req: DatasetAuditRequest):
-    audit_id = req.audit_id
-    base = ROOT / req.dataset_path
+    audit_id = validate_audit_id(req.audit_id)
+    base = safe_resolve(req.dataset_path, ROOT)
     
     log_event(audit_id, "Dataset Audit", "Initialize", {"path": req.dataset_path, "format": req.format}, "init()", {}, "STARTED", "", "Audit Initialized", "", 0, "RUNNING")
     
@@ -240,7 +315,6 @@ def run_dataset_audit_task(req: DatasetAuditRequest):
             images_dir = base
             labels_dir = base
         
-        # We will need to pass audit_id to inspect_yolo_dataset
         ds_result = inspect_yolo_dataset(images_dir, labels_dir, audit_id=audit_id)
         records = ds_result["records"]
         
@@ -250,12 +324,24 @@ def run_dataset_audit_task(req: DatasetAuditRequest):
         with open(REPORTS_DIR / f"records_{audit_id}.json", "w", encoding="utf-8") as f:
             json.dump(records, f)
             
+        candidate_annotations = {r["filename"]: r.get("annotations", []) for r in records}
+        reference_annotations = None
+        if req.reference_dataset_path:
+            ref_base = safe_resolve(req.reference_dataset_path, ROOT)
+            if ref_base.exists():
+                ref_images_dir = ref_base / "images" if (ref_base / "images").exists() else ref_base
+                ref_labels_dir = ref_base / "labels" if (ref_base / "labels").exists() else ref_base
+                ref_result = inspect_yolo_dataset(ref_images_dir, ref_labels_dir)
+                reference_annotations = {r["filename"]: r.get("annotations", []) for r in ref_result.get("records", [])}
+
         raw_findings: List[Dict[str, Any]] = [
             check_duplicate_flooding(records, audit_id=audit_id),
-            check_data_poisoning(records, audit_id=audit_id),
+            check_label_flipping(candidate_annotations, reference_annotations),
             check_trigger_patterns([Path(r["path"]) for r in records if Path(r["path"]).exists()], audit_id=audit_id),
+            check_data_poisoning(records, audit_id=audit_id),
+            check_ood_samples(records, audit_id=audit_id),
         ]
-        findings = [f for f in raw_findings if f["result"] != "PASS"]
+        findings = list(raw_findings)
         
         # Execute CleanVision adapter
         from src.integrations.cleanvision_adapter import run_cleanvision_checks
@@ -291,12 +377,23 @@ def run_dataset_audit_task(req: DatasetAuditRequest):
             with open(REPORTS_DIR / f"records_{audit_id}.json", "w", encoding="utf-8") as f:
                 json.dump(records, f)
                 
+            candidate_annotations = {r["filename"]: r.get("annotations", []) for r in records}
+            reference_annotations = None
+            if req.reference_dataset_path:
+                ref_base = safe_resolve(req.reference_dataset_path, ROOT)
+                ref_ann = ref_base / "annotations.json" if (ref_base / "annotations.json").exists() else ref_base
+                if ref_ann.exists() and ref_ann.is_file():
+                    ref_res = inspect_coco_dataset(ref_ann)
+                    reference_annotations = {r["filename"]: r.get("annotations", []) for r in ref_res.get("records", [])}
+
             raw_findings = [
                 check_duplicate_flooding(records, audit_id=audit_id),
+                check_label_flipping(candidate_annotations, reference_annotations),
+                check_trigger_patterns([Path(r["path"]) for r in records if Path(r["path"]).exists()], audit_id=audit_id),
                 check_data_poisoning(records, audit_id=audit_id),
-                check_trigger_patterns([Path(r["path"]) for r in records if Path(r["path"]).exists()], audit_id=audit_id)
+                check_ood_samples(records, audit_id=audit_id),
             ]
-            findings.extend([f for f in raw_findings if f["result"] != "PASS"])
+            findings = list(raw_findings)
             
         from src.integrations.cleanvision_adapter import run_cleanvision_checks
         log_event(audit_id, "Quality Checks", "CleanVision", {"images_dir": str(images_dir)}, "cleanvision.detect()", {}, "STARTED", "", "Running pixel anomaly detection", "", 0, "RUNNING")
@@ -330,13 +427,13 @@ def run_dataset_audit_task(req: DatasetAuditRequest):
 # ---------------------------------------------------------------------------
 @app.post("/api/audit/model")
 def audit_model(req: ModelAuditRequest):
-    model_path = ROOT / req.model_path
+    model_path = safe_resolve(req.model_path, ROOT)
     if not model_path.exists():
         raise HTTPException(status_code=400, detail=f"Model not found: {req.model_path}")
 
     ref_manifest = None
     if req.manifest_path:
-        mp = ROOT / req.manifest_path
+        mp = safe_resolve(req.manifest_path, ROOT)
         if mp.exists():
             ref_manifest = load_manifest(mp)
 
@@ -350,8 +447,8 @@ def audit_model(req: ModelAuditRequest):
             "check_id": "SEC-MDL-001",
             "name": "Model Substitution / Integrity Check",
             "result": "PASS" if hm.get("result") == "PASS" else
-                      "ANOMALY_DETECTED" if hm.get("result") == "FAIL" else
-                      hm.get("result", "NOT ASSESSED"),
+                      "FAIL" if hm.get("result") == "FAIL" else
+                      hm.get("result", "NOT_ASSESSED"),
             "severity": hm.get("severity", "INFO"),
             "confidence": "HIGH",
             "evidence": hm,
@@ -362,7 +459,7 @@ def audit_model(req: ModelAuditRequest):
         {
             "check_id": "SEC-MDL-002",
             "name": "Model Structural Validation",
-            "result": loadable.get("result", "NOT ASSESSED"),
+            "result": loadable.get("result", "NOT_ASSESSED"),
             "severity": "HIGH" if loadable.get("result") == "FAIL" else "INFO",
             "confidence": "HIGH",
             "evidence": {"metadata": record["metadata"]},
@@ -374,8 +471,8 @@ def audit_model(req: ModelAuditRequest):
             "check_id": "SEC-MDL-003",
             "name": "Manifest Cryptographic Signature",
             "result": "PASS" if manifest_int.get("result") == "PASS" else
-                      "ANOMALY_DETECTED" if manifest_int.get("result") == "FAIL" else
-                      manifest_int.get("result", "NOT ASSESSED"),
+                      "FAIL" if manifest_int.get("result") == "FAIL" else
+                      manifest_int.get("result", "NOT_ASSESSED"),
             "severity": manifest_int.get("severity", "INFO"),
             "confidence": "HIGH",
             "evidence": manifest_int,
@@ -426,7 +523,7 @@ def audit_model(req: ModelAuditRequest):
 # ---------------------------------------------------------------------------
 @app.post("/api/audit/inference")
 def audit_inference(req: InferenceAuditRequest):
-    log_path = ROOT / req.log_path
+    log_path = safe_resolve(req.log_path, ROOT)
     if not log_path.exists():
         raise HTTPException(status_code=400, detail=f"Log not found: {req.log_path}")
 
@@ -438,8 +535,7 @@ def audit_inference(req: InferenceAuditRequest):
         findings.append(check_inference_replay(rec))
         preds = rec.get("predictions", [])
         bb = check_backdoor_behaviour(preds)
-        if bb["result"] != "PASS":
-            findings.append(bb)
+        findings.append(bb)
 
     report = generate_report(
         inference_findings=findings,
@@ -471,33 +567,42 @@ def audit_full(req: FullAuditRequest):
     records_inf: list = []
 
     if req.dataset_path:
-        base = ROOT / req.dataset_path
+        base = safe_resolve(req.dataset_path, ROOT)
         if base.exists():
-            imgs = base / "images"
-            lbls = base / "labels"
-            if not imgs.exists():
-                imgs = base
-                lbls = base
+            imgs = base / "images" if (base / "images").exists() else base
+            lbls = base / "labels" if (base / "labels").exists() else base
             ds_result = inspect_yolo_dataset(imgs, lbls)
             records = ds_result["records"]
-            all_ds_findings = [f for f in [
+            candidate_annotations = {r["filename"]: r.get("annotations", []) for r in records}
+            reference_annotations = None
+            if req.reference_dataset_path:
+                ref_base = safe_resolve(req.reference_dataset_path, ROOT)
+                if ref_base.exists():
+                    ref_imgs = ref_base / "images" if (ref_base / "images").exists() else ref_base
+                    ref_lbls = ref_base / "labels" if (ref_base / "labels").exists() else ref_base
+                    ref_res = inspect_yolo_dataset(ref_imgs, ref_lbls)
+                    reference_annotations = {r["filename"]: r.get("annotations", []) for r in ref_res.get("records", [])}
+
+            all_ds_findings = [
                 check_duplicate_flooding(records),
-                check_data_poisoning(records),
+                check_label_flipping(candidate_annotations, reference_annotations),
                 check_trigger_patterns([Path(r["path"]) for r in records if Path(r["path"]).exists()]),
-            ] if f["result"] != "PASS"]
+                check_data_poisoning(records),
+                check_ood_samples(records),
+            ]
             ds_summary = {"total_images": ds_result["total_images"],
                           "class_counts": ds_result["class_counts"]}
 
     if req.model_path:
-        mp = ROOT / req.model_path
+        mp = safe_resolve(req.model_path, ROOT)
         if mp.exists():
-            ref = load_manifest(ROOT / req.manifest_path) if req.manifest_path and (ROOT / req.manifest_path).exists() else None
+            ref = load_manifest(safe_resolve(req.manifest_path, ROOT)) if req.manifest_path and (ROOT / req.manifest_path).exists() else None
             record = inspect_model(mp, reference_manifest=ref)
             hm = record["checks"].get("hash_match", {})
             manifest_int = record["checks"].get("manifest_integrity", {})
             all_mdl_findings.append({
                 "check_id": "SEC-MDL-001", "name": "Model Substitution / Integrity Check",
-                "result": "PASS" if hm.get("result") == "PASS" else "ANOMALY_DETECTED" if hm.get("result") == "FAIL" else hm.get("result", "NOT ASSESSED"),
+                "result": "PASS" if hm.get("result") == "PASS" else "FAIL" if hm.get("result") == "FAIL" else hm.get("result", "NOT_ASSESSED"),
                 "severity": hm.get("severity", "INFO"), "confidence": "HIGH",
                 "evidence": hm, "description": hm.get("detail", ""),
                 "recommended_action": "Verify model source." if hm.get("result") == "FAIL" else "No action.",

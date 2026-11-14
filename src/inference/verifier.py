@@ -36,12 +36,19 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 import os
-_ENV_SECRET = os.environ.get("TRUSTTRACE_CV_HMAC_SECRET")
-if _ENV_SECRET:
-    _DEFAULT_SECRET = _ENV_SECRET.encode("utf-8")
-else:
-    logger.warning("INSECURE DEVELOPMENT FALLBACK: Using hardcoded HMAC secret.")
-    _DEFAULT_SECRET = b"TRUSTTRACE_CV_DEFAULT_HMAC_SECRET"
+
+def get_hmac_secret() -> Optional[bytes]:
+    """Retrieve HMAC secret from environment, if configured."""
+    sec = os.environ.get("TRUSTTRACE_CV_HMAC_SECRET")
+    return sec.encode("utf-8") if sec else None
+
+def canonicalize_inference_payload(record: Dict[str, Any]) -> bytes:
+    """Canonicalize inference record payload for deterministic hashing and signing."""
+    payload_fields = {
+        k: v for k, v in record.items()
+        if k not in ("payload_hash", "hmac_sig")
+    }
+    return json.dumps(payload_fields, sort_keys=True, separators=(',', ':')).encode("utf-8")
 
 # ---------------------------------------------------------------------------
 # Record & sign an inference result
@@ -61,11 +68,18 @@ def record_inference(
     output_digest: str = "",
     sequence_number: int = 0,
     previous_event_hash: str = "",
-    secret: bytes = _DEFAULT_SECRET,
+    secret: Optional[bytes] = None,
 ) -> Dict[str, Any]:
     """
     Create a signed inference record.
     """
+    if secret is None:
+        secret = get_hmac_secret()
+    if not secret:
+        raise ValueError(
+            "Signing key required: set TRUSTTRACE_CV_HMAC_SECRET or pass explicit secret."
+        )
+
     record = {
         "event_id": str(uuid.uuid4()),
         "record_id": str(uuid.uuid4()),  # Keep for backwards compat
@@ -86,7 +100,7 @@ def record_inference(
         "sequence_number": sequence_number,
         "previous_event_hash": previous_event_hash
     }
-    payload_bytes = json.dumps(record, sort_keys=True).encode()
+    payload_bytes = canonicalize_inference_payload(record)
     payload_hash  = hashlib.sha256(payload_bytes).hexdigest()
     hmac_sig      = hmac.new(secret, payload_bytes, hashlib.sha256).hexdigest()
 
@@ -97,25 +111,74 @@ def record_inference(
 
 def verify_inference_record(
     record: Dict[str, Any],
-    secret: bytes = _DEFAULT_SECRET,
+    secret: Optional[bytes] = None,
 ) -> Dict[str, Any]:
     """
     Verify the HMAC signature of an inference record produced by record_inference().
 
     Returns a finding dict.
     """
+    if secret is None:
+        secret = get_hmac_secret()
+
+    if not secret:
+        return {
+            "check_id": "SEC-INF-001",
+            "name": "Inference Record Tamper Verification",
+            "result": "NOT_ASSESSED",
+            "severity": "INFO",
+            "confidence": "NOT_ASSESSED",
+            "evidence": {
+                "record_id": record.get("record_id") or record.get("event_id"),
+                "reason": "HMAC secret not provided or configured in environment."
+            },
+            "description": "HMAC signing key is unavailable; inference integrity cannot be cryptographically verified.",
+            "recommended_action": "Configure TRUSTTRACE_CV_HMAC_SECRET to enable cryptographic verification.",
+            "limitation": "Verification requires the original signing key.",
+        }
+
     stored_hash = record.get("payload_hash")
     stored_sig  = record.get("hmac_sig")
 
-    # Re-derive payload (exclude hash and sig fields)
-    payload_fields = {k: v for k, v in record.items()
-                     if k not in ("payload_hash", "hmac_sig")}
-    payload_bytes = json.dumps(payload_fields, sort_keys=True).encode()
+    if not stored_hash or not isinstance(stored_hash, str):
+        return {
+            "check_id": "SEC-INF-001",
+            "name": "Inference Record Tamper Verification",
+            "result": "FAIL",
+            "severity": "CRITICAL",
+            "confidence": "HIGH",
+            "evidence": {
+                "record_id": record.get("record_id") or record.get("event_id"),
+                "reason": "Missing or invalid payload_hash format in record.",
+            },
+            "description": "Record does not contain a valid payload_hash.",
+            "recommended_action": "Quarantine the unverified record.",
+            "limitation": "Cannot verify without record hash.",
+        }
+
+    if not stored_sig or not isinstance(stored_sig, str):
+        return {
+            "check_id": "SEC-INF-001",
+            "name": "Inference Record Tamper Verification",
+            "result": "FAIL",
+            "severity": "CRITICAL",
+            "confidence": "HIGH",
+            "evidence": {
+                "record_id": record.get("record_id") or record.get("event_id"),
+                "reason": "Missing or invalid hmac_sig format in record.",
+            },
+            "description": "Record does not contain a valid HMAC signature.",
+            "recommended_action": "Quarantine the unsigned record.",
+            "limitation": "Cannot verify without signature.",
+        }
+
+    # Re-derive payload using canonical serialization
+    payload_bytes = canonicalize_inference_payload(record)
     expected_hash = hashlib.sha256(payload_bytes).hexdigest()
     expected_sig  = hmac.new(secret, payload_bytes, hashlib.sha256).hexdigest()
 
-    hash_ok = hmac.compare_digest(stored_hash or "", expected_hash)
-    sig_ok  = hmac.compare_digest(stored_sig  or "", expected_sig)
+    hash_ok = hmac.compare_digest(stored_hash, expected_hash)
+    sig_ok  = hmac.compare_digest(stored_sig, expected_sig)
 
     if hash_ok and sig_ok:
         result, severity, detail = "PASS", "INFO", "Payload hash and HMAC signature verified."
@@ -163,29 +226,38 @@ def check_inference_replay(
     
     success, message, record_hash = record_inference_event(incoming_record)
     is_replay = (message == "REPLAY_DETECTED")
+    is_invalid = not success and not is_replay
+
+    if is_replay:
+        result, severity = "ANOMALY_DETECTED", "HIGH"
+        desc = "Replayed inference record detected — hash matches a previously seen result."
+    elif is_invalid:
+        result, severity = "FAIL", "CRITICAL"
+        desc = f"Inference record rejected by provenance engine: {message}."
+    else:
+        result, severity = "PASS", "INFO"
+        desc = "No replay detected. Event recorded in provenance."
 
     return {
         "check_id": "SEC-INF-002",
         "name": "Inference Replay Detection",
-        "result": "ANOMALY_DETECTED" if is_replay else "PASS",
-        "severity": "HIGH" if is_replay else "INFO",
+        "result": result,
+        "severity": severity,
         "confidence": "HIGH",
         "evidence": {
             "record_id":    incoming_record.get("record_id") or incoming_record.get("event_id"),
             "payload_hash": incoming_record.get("payload_hash"),
             "record_hash":  record_hash,
             "is_replay":    is_replay,
+            "status":       message,
         },
-        "description": (
-            "Replayed inference record detected — hash matches a previously seen result."
-            if is_replay else "No replay detected. Event recorded in provenance."
-        ),
+        "description": desc,
         "recommended_action": (
-            "Reject replayed records. Investigate source of duplicate submissions."
-            if is_replay else "No action required."
+            "Reject replayed or invalid records. Investigate source of duplicate or tampered submissions."
+            if (is_replay or is_invalid) else "No action required."
         ),
         "limitation": (
-            "Replay detection is based on payload equality via record_hash."
+            "Replay detection is based on payload equality via record_hash in the provenance trail."
         ),
     }
 

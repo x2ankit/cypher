@@ -32,12 +32,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 import hmac
 
-_ENV_MANIFEST_SECRET = os.environ.get("TRUSTTRACE_CV_MANIFEST_SECRET")
-if _ENV_MANIFEST_SECRET:
-    _MANIFEST_SECRET = _ENV_MANIFEST_SECRET.encode("utf-8")
-else:
-    logger.warning("INSECURE DEVELOPMENT FALLBACK: Using hardcoded Manifest HMAC secret.")
-    _MANIFEST_SECRET = b"TRUSTTRACE_CV_DEFAULT_MANIFEST_SECRET"
+def get_manifest_secret() -> Optional[bytes]:
+    """Retrieve manifest signing secret from environment, if configured."""
+    sec = os.environ.get("TRUSTTRACE_CV_MANIFEST_SECRET")
+    return sec.encode("utf-8") if sec else None
 
 def sha256_file(path: Path) -> str:
     """Compute SHA-256 of a file, reading in 64 KiB chunks."""
@@ -47,19 +45,57 @@ def sha256_file(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-def sign_manifest(manifest: Dict[str, str], secret: bytes = _MANIFEST_SECRET) -> Dict[str, str]:
+def canonicalize_manifest(manifest: Dict[str, str]) -> bytes:
+    """Canonicalize manifest payload without signatures using deterministic JSON."""
     clean_manifest = {k: v for k, v in manifest.items() if k not in ("hmac_sig", "rsa_sig")}
-    payload_bytes = json.dumps(clean_manifest, sort_keys=True).encode()
+    return json.dumps(clean_manifest, sort_keys=True, separators=(',', ':')).encode("utf-8")
+
+def sign_manifest(manifest: Dict[str, str], secret: Optional[bytes] = None) -> Dict[str, str]:
+    """Sign manifest using HMAC-SHA256."""
+    if secret is None:
+        secret = get_manifest_secret()
+    if not secret:
+        raise ValueError(
+            "Signing secret required: set TRUSTTRACE_CV_MANIFEST_SECRET or pass explicit secret."
+        )
+    payload_bytes = canonicalize_manifest(manifest)
+    clean_manifest = {k: v for k, v in manifest.items() if k not in ("hmac_sig", "rsa_sig")}
     hmac_sig = hmac.new(secret, payload_bytes, hashlib.sha256).hexdigest()
     clean_manifest["hmac_sig"] = hmac_sig
     return clean_manifest
 
-def verify_manifest(manifest: Dict[str, str], secret: bytes = _MANIFEST_SECRET, public_key_path: Optional[Path] = None) -> Tuple[bool, str]:
-    """Verifies manifest using RSA asymmetric signature if available, fallback to HMAC."""
+def sign_manifest_rsa(manifest: Dict[str, str], private_key_path: Optional[Path] = None) -> Dict[str, str]:
+    """Sign manifest using RSA private key (PKCS1v15 + SHA-256). Key rotation unsupported."""
+    if private_key_path is None:
+        env_key = os.environ.get("TRUSTTRACE_PRIVATE_KEY_PATH", "private_key.pem")
+        private_key_path = Path(env_key)
+    if not private_key_path.exists():
+        raise FileNotFoundError(f"RSA private key not found at: {private_key_path}")
+
+    from cryptography.hazmat.primitives.asymmetric import padding
+    from cryptography.hazmat.primitives import hashes, serialization
+    import base64
+
+    with open(private_key_path, "rb") as kf:
+        private_key = serialization.load_pem_private_key(kf.read(), password=None)
+
+    payload_bytes = canonicalize_manifest(manifest)
+    raw_sig = private_key.sign(payload_bytes, padding.PKCS1v15(), hashes.SHA256())
     clean_manifest = {k: v for k, v in manifest.items() if k not in ("hmac_sig", "rsa_sig")}
-    payload_bytes = json.dumps(clean_manifest, sort_keys=True).encode()
+    clean_manifest["rsa_sig"] = base64.b64encode(raw_sig).decode("ascii")
+    return clean_manifest
+
+def verify_manifest(manifest: Dict[str, str], secret: Optional[bytes] = None, public_key_path: Optional[Path] = None) -> Tuple[bool, str]:
+    """Verifies manifest using RSA asymmetric signature if available, fallback to HMAC."""
+    payload_bytes = canonicalize_manifest(manifest)
     
-    if "rsa_sig" in manifest and public_key_path and public_key_path.exists():
+    if "rsa_sig" in manifest:
+        if public_key_path is None:
+            env_key = os.environ.get("TRUSTTRACE_PUBLIC_KEY_PATH") or os.environ.get("TRUSTTRACE_PUBLIC_KEY", "public_key.pem")
+            public_key_path = Path(env_key)
+        if not public_key_path.exists():
+            logger.warning(f"Public key path does not exist: {public_key_path}")
+            return False, "ASYMMETRIC_KEY_MISSING"
         try:
             from cryptography.hazmat.primitives.asymmetric import padding
             from cryptography.hazmat.primitives import hashes
@@ -69,7 +105,7 @@ def verify_manifest(manifest: Dict[str, str], secret: bytes = _MANIFEST_SECRET, 
             with open(public_key_path, "rb") as key_file:
                 public_key = serialization.load_pem_public_key(key_file.read())
             
-            signature = base64.b64decode(manifest["rsa_sig"])
+            signature = base64.b64decode(manifest["rsa_sig"], validate=True)
             public_key.verify(
                 signature,
                 payload_bytes,
@@ -82,8 +118,16 @@ def verify_manifest(manifest: Dict[str, str], secret: bytes = _MANIFEST_SECRET, 
             return False, "ASYMMETRIC"
             
     if "hmac_sig" in manifest:
+        if secret is None:
+            secret = get_manifest_secret()
+        if not secret:
+            logger.warning("Manifest HMAC secret not configured for verification.")
+            return False, "HMAC_KEY_MISSING"
+        sig = manifest.get("hmac_sig")
+        if not isinstance(sig, str) or len(sig) != 64:
+            return False, "HMAC_MALFORMED"
         expected_sig = hmac.new(secret, payload_bytes, hashlib.sha256).hexdigest()
-        is_valid = hmac.compare_digest(manifest["hmac_sig"], expected_sig)
+        is_valid = hmac.compare_digest(sig, expected_sig)
         return is_valid, "HMAC"
         
     return False, "NONE"
@@ -92,8 +136,8 @@ def build_manifest(model_paths: List[Path]) -> Dict[str, str]:
     """Build a {filename: sha256} manifest for the given model files."""
     return {p.name: sha256_file(p) for p in model_paths if p.is_file()}
 
-def save_manifest(manifest: Dict[str, str], manifest_path: Path) -> None:
-    signed_manifest = sign_manifest(manifest)
+def save_manifest(manifest: Dict[str, str], manifest_path: Path, secret: Optional[bytes] = None) -> None:
+    signed_manifest = sign_manifest(manifest, secret=secret)
     with open(manifest_path, "w", encoding="utf-8") as fh:
         json.dump(signed_manifest, fh, indent=2)
     logger.info("Manifest saved to %s", manifest_path)
@@ -139,7 +183,7 @@ def _try_load_pytorch(path: Path) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Try generic torch.load
+    # Try generic torch.load safely with weights_only=True
     try:
         obj = torch.load(str(path), map_location="cpu", weights_only=True)
         if isinstance(obj, dict):
@@ -150,19 +194,11 @@ def _try_load_pytorch(path: Path) -> Dict[str, Any]:
             meta["load_type"] = type(obj).__name__
         return meta
     except Exception as exc:
-        try:
-            # Fallback without weights_only (older format)
-            obj = torch.load(str(path), map_location="cpu")
-            if isinstance(obj, dict):
-                meta["load_type"] = "state_dict (legacy)"
-                meta["keys"] = list(obj.keys())[:20]
-                meta["total_keys"] = len(obj)
-            else:
-                meta["load_type"] = type(obj).__name__
-            return meta
-        except Exception as exc2:
-            meta["error"] = str(exc2)
-            return meta
+        # Safe loading failed. Do NOT silently fall back to unsafe weights_only=False!
+        logger.warning("Safe weights_only loading failed for %s: %s", path, exc)
+        meta["error"] = f"Safe loading (weights_only=True) failed: {exc}"
+        meta["load_type"] = "PyTorch (unverified)"
+        return meta
 
 
 # ---------------------------------------------------------------------------
@@ -294,10 +330,15 @@ def inspect_model(
     if reference_manifest is not None:
         if "hmac_sig" in reference_manifest or "rsa_sig" in reference_manifest:
             # Check if there is a public key available for this project
-            pub_key_path = Path(os.environ.get("TRUSTTRACE_PUBLIC_KEY", "public_key.pem"))
+            pub_key_path = Path(os.environ.get("TRUSTTRACE_PUBLIC_KEY_PATH") or os.environ.get("TRUSTTRACE_PUBLIC_KEY", "public_key.pem"))
             sig_valid, sig_type = verify_manifest(reference_manifest, public_key_path=pub_key_path)
             
-            if not sig_valid:
+            if sig_type.endswith("_KEY_MISSING"):
+                record["checks"]["manifest_integrity"] = {
+                    "result": "NOT ASSESSED",
+                    "detail": f"Manifest signature cannot be verified: {sig_type}."
+                }
+            elif not sig_valid:
                 record["checks"]["manifest_integrity"] = {
                     "result": "FAIL",
                     "severity": "CRITICAL",

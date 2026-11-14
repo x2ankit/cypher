@@ -51,6 +51,21 @@ def run_cleanvision_checks(dataset_path: str, dataset_id: str) -> List[Evidence]
                 )
                 evidence_list.append(evidence)
                 
+        if not evidence_list:
+            evidence = Evidence(
+                evidence_id=f"CV_{uuid.uuid4().hex[:8]}",
+                asset_id=dataset_id,
+                finding_type="CLEANVISION_ANALYSIS",
+                category="DATA_QUALITY",
+                method="cleanvision",
+                status="PASS",
+                severity="INFO",
+                confidence_basis="CleanVision detector execution",
+                observations="CleanVision executed successfully; no visual defects detected.",
+                limitations="Image-quality screening does not guarantee absence of semantic or security defects."
+            )
+            evidence_list.append(evidence)
+                
     except ImportError:
         logger.info("CleanVision not installed. Skipping CleanVision checks.")
         evidence = Evidence(
@@ -65,6 +80,21 @@ def run_cleanvision_checks(dataset_path: str, dataset_id: str) -> List[Evidence]
             observations="CleanVision capability cannot be assessed because the required library is unavailable.",
             limitations="cleanvision package is not installed in the current environment.",
             recommended_action="Install cleanvision to enable advanced dataset quality checks."
+        )
+        evidence_list.append(evidence)
+    except Exception as exc:
+        logger.warning("CleanVision execution failed: %s", exc)
+        evidence = Evidence(
+            evidence_id=f"CV_ERR_{uuid.uuid4().hex[:8]}",
+            asset_id=dataset_id,
+            finding_type="CLEANVISION_ANALYSIS",
+            category="DATA_QUALITY",
+            method="cleanvision",
+            status="NOT_ASSESSED",
+            severity="INFO",
+            confidence_basis="N/A",
+            observations=f"CleanVision execution could not complete: {exc}",
+            limitations="Error occurred during CleanVision execution."
         )
         evidence_list.append(evidence)
         

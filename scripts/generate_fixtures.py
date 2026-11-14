@@ -20,6 +20,8 @@ License: MIT (project internal).
 
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ.setdefault("TRUSTTRACE_CV_HMAC_SECRET", "test_hmac_secret_key_for_tests_32b")
+os.environ.setdefault("TRUSTTRACE_CV_MANIFEST_SECRET", "test_manifest_secret_for_tests_32")
 
 import json
 import random
@@ -104,7 +106,18 @@ def generate_clean_dataset():
     # Save reference annotation manifest (ground truth for label-flip test)
     with open(DATA / "clean" / "annotations_reference.json", "w") as fh:
         json.dump(class_map, fh, indent=2)
-    print("[OK] Clean dataset: 10 images")
+    # Also create data/fixtureA.zip for API integration testing
+    clean_dir = DATA / "clean"
+    zip_target = ROOT / "data" / "fixtureA.zip"
+    zip_target.parent.mkdir(parents=True, exist_ok=True)
+    import zipfile
+    with zipfile.ZipFile(zip_target, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root_dir, _, files in os.walk(clean_dir):
+            for file in files:
+                full_p = Path(root_dir) / file
+                rel_p = full_p.relative_to(clean_dir)
+                zf.write(full_p, arcname=str(rel_p))
+    print("[OK] Clean dataset: 10 images (and created data/fixtureA.zip)")
 
 
 # ---------------------------------------------------------------------------

@@ -61,7 +61,7 @@ def test_trigger_inference_loop():
         assert d["finding_type"] == "NO_SIGNIFICANT_TRIGGER_SENSITIVITY_OBSERVED"
 
 # 3. Model Runtime Tests
-def test_model_runtime_unsupported():
+def test_model_runtime_unsupported(tmp_path):
     try:
         load_model_for_inference("nonexistent_model.pt")
         pytest.fail("Should throw FileNotFoundError")
@@ -69,10 +69,10 @@ def test_model_runtime_unsupported():
         pass
         
     try:
-        # Create a fake txt file
-        with open("fake.txt", "w") as f:
-            f.write("test")
-        load_model_for_inference("fake.txt")
+        # Create a fake txt file in isolated tmp_path
+        fake_txt = tmp_path / "fake.txt"
+        fake_txt.write_text("test")
+        load_model_for_inference(str(fake_txt))
         pytest.fail("Should throw ModelRuntimeError for unsupported extension")
     except ModelRuntimeError as e:
         assert "MODEL_EXECUTION_UNAVAILABLE" in str(e)

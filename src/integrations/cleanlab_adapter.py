@@ -41,6 +41,20 @@ def run_cleanlab_object_detection(dataset_id: str, labels: Any, predictions: Any
                 recommended_action="Review flagged bounding boxes."
             )
             evidence_list.append(evidence)
+        else:
+            evidence = Evidence(
+                evidence_id=f"CL_{uuid.uuid4().hex[:8]}",
+                asset_id=dataset_id,
+                finding_type="POTENTIAL_LABEL_ISSUE",
+                category="LABEL_QUALITY",
+                method="cleanlab_object_detection",
+                status="PASS",
+                severity="INFO",
+                confidence_basis="Cleanlab object-detection filter",
+                observations="Cleanlab completed; no label inconsistencies detected.",
+                limitations="Cleanlab evaluates consistency against predictions; does not verify ground truth."
+            )
+            evidence_list.append(evidence)
             
     except ImportError:
         logger.info("Cleanlab not installed.")

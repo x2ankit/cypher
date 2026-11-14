@@ -62,11 +62,11 @@ def generate_intoto_evidence(chain: InTotoEvidenceChain, report_id: str) -> List
         finding_type="INTOTO_PROVENANCE_CHAIN",
         category="PROVENANCE",
         method="in-toto_adapter",
-        status="PASS",
+        status="NOT_ASSESSED",
         severity="INFO",
-        confidence_basis="In-toto local link verification",
-        observations=f"In-toto-style evidence chain generated with {len(chain.chain)} stages.",
-        limitations="Adapts in-toto semantics for CV inference offline. Software supply chain semantics not blindly copied.",
+        confidence_basis="Local pipeline execution metadata (unattested)",
+        observations=f"In-toto-style provenance link metadata recorded with {len(chain.chain)} stage(s). Note: This represents local operational metadata, NOT an externally verified in-toto root layout attestation.",
+        limitations="Generates local provenance link metadata inspired by in-toto schema. Does not represent a cryptographically signed in-toto layout verification or third-party attestation.",
         source_metadata={"chain": chain.export_chain()}
     )
     evidence_list.append(evidence)

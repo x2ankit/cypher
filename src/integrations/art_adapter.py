@@ -19,19 +19,20 @@ def run_art_robustness_probe(model_id: str, model_instance: Any, framework: str)
         if framework not in ["pytorch", "tensorflow", "keras", "scikit-learn"]:
              raise ValueError("unsupported_model_interface")
              
-        # Actual ART evaluation would go here
-        
+        # Real ART evaluation requires a wrapped model, evaluation dataset, and attack configuration.
+        # We never emit a fake or simulated PASS.
         evidence = Evidence(
-            evidence_id=f"ART_{uuid.uuid4().hex[:8]}",
+            evidence_id=f"ART_NA_{uuid.uuid4().hex[:8]}",
             asset_id=model_id,
             finding_type="ART_ROBUSTNESS_PROBE",
             category="SECURITY_INTEGRITY",
             method="adversarial_robustness_toolbox",
-            status="PASS",  # Simulated
+            status="NOT_ASSESSED",
             severity="INFO",
-            confidence_basis="ART Evaluation (Simulated)",
-            observations="ART simulated robustness probe completed successfully.",
-            limitations="Simulated evaluation for prototype.",
+            confidence_basis="N/A",
+            observations="ART library is installed, but adversarial robustness probing requires evaluation inputs, gradients, and attack configuration not provided.",
+            limitations="Adversarial evaluation requires an active model wrapper, test dataset, and defined perturbation budget.",
+            recommended_action="Supply target evaluation dataset and attack configuration to execute genuine ART probes."
         )
         evidence_list.append(evidence)
         

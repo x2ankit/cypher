@@ -58,7 +58,7 @@ from src.reporting.report_generator import generate_report, save_report
 console = Console()
 app     = typer.Typer(
     name="trusttrace-cv",
-    help="TRUSTTRACE CV – SIH26228 Assurance System for Computer Vision Pipelines",
+    help="TrustTrace CV – Cryptographic Assurance System for Computer Vision Pipelines",
     no_args_is_help=True,
 )
 
