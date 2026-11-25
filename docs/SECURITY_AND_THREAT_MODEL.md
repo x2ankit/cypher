@@ -28,7 +28,7 @@ TRUSTTRACE CV addresses specific threats in a multi-contributor Computer Vision 
 
 1. **Invisible or Perceptual Triggers:** Sophisticated backdoors utilizing adversarial noise imperceptible to the human eye cannot be detected by basic entropy scans.
 2. **Model Weight Scanning:** We do not execute universal backdoor detection via static weight analysis, as this is currently an unsolved mathematical problem for generalized deep neural networks without access to the exact training set.
-3. **Fuzzy / Near-Duplicates:** The current prototype relies on exact cryptographic hashing. Recompressed (e.g., JPEG quality shift) or slightly resized images are not currently flagged as duplicates.
+3. **Extreme Geometric Warping:** While perceptual difference hashing (dHash, `SEC-DS-001b`) detects recompressed (JPEG quality shift) and resized duplicates, severe non-rigid geometric transformations (large affine rotations or extreme perspective skew) require heavier feature-invariant descriptors that exceed lightweight heuristic inspection.
 4. **Hardware-Enforced Immutability:** The local SQLite audit log provides tamper-evidence via cryptographic hash chaining and sequence enforcement; it does not replace a physically write-once (WORM) hardware storage system.
 
 ## Assurance Verdict Framework

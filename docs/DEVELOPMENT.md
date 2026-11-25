@@ -6,7 +6,7 @@ TRUSTTRACE CV is separated into a frontend static UI and a FastAPI backend.
 - `src/ui/`: Contains the frontend `index.html`, `app.js`, and `style.css`.
 - `src/api/`: Contains the FastAPI backend application (`app.py`), sqlite logging database (`audit_db.py`).
 - `src/dataset/`: Contains parsing, inspection, and heuristic anomaly detection logic.
-- `src/model/`: Contains structural model validation.
+- `src/models/`: Contains structural model validation, hashing, performance, and behavioral fingerprinting.
 - `src/inference/`: Contains the inference-level provenance algorithms.
 - `src/reporting/`: Contains HTML offline report generators and report schema definitions.
 - `tests/`: Contains the pytest automated test suite.
@@ -15,10 +15,10 @@ TRUSTTRACE CV is separated into a frontend static UI and a FastAPI backend.
 ## Setup for Development
 
 1. Clone the repository and navigate into the root directory.
-2. Ensure you have Conda or `venv` available and Python 3.9+ installed.
+2. Ensure you have Conda or `venv` available and Python 3.10+ installed.
 3. Create the environment:
    ```bash
-   conda create -n trusttrace python=3.10
+   conda create -n trusttrace python=3.12
    conda activate trusttrace
    pip install -r requirements.txt
    ```

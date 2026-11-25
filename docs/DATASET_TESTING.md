@@ -211,7 +211,7 @@ pytest tests/ -v
 ```
 *Expected Output:*
 * All 24 benchmark-specific tests pass.
-* All 155 project-wide tests pass with 0 failures.
+* All 171 project-wide tests pass with 0 failures.
 
 ---
 

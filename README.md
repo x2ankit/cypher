@@ -9,7 +9,7 @@
 [![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-005CED?style=for-the-badge&logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![Tests Passing](https://img.shields.io/badge/Tests-155%20Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![Tests Passing](https://img.shields.io/badge/Tests-171%20Passed-success?style=for-the-badge&logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
 <br/>
@@ -41,7 +41,7 @@
 
 **TrustTrace CV** is an offline-first, model-agnostic assurance and cryptographic provenance toolkit designed specifically for safety-critical Computer Vision (CV) pipelines. Modern computer vision systems deployed in autonomous vehicles, robotics, healthcare diagnostics, and automated inspection are increasingly vulnerable to **data poisoning**, **Trojan backdoor insertion**, **model substitution**, and **silent inference log manipulation**.
 
-Standard MLOps tools focus either on data validation or post-deployment monitoring without verifying cryptographic trust. **TrustTrace CV** bridges this security gap by delivering **zero-trust cryptographic verification**, **mathematically principled statistical heuristics**, and an **immutable hash-chained provenance ledger**—operating entirely **air-gapped** with zero external cloud dependencies.
+Standard MLOps tools focus either on data validation or post-deployment monitoring without verifying cryptographic trust. **TrustTrace CV** bridges this security gap by delivering **zero-trust cryptographic verification**, **mathematically principled statistical heuristics**, and a **tamper-evident hash-chained provenance ledger**—operating entirely **air-gapped** with zero external cloud dependencies.
 
 ---
 
@@ -66,7 +66,7 @@ Standard MLOps tools focus either on data validation or post-deployment monitori
 * **Model Substitution Protection**: Deterministic parameter count and tensor structure verification preventing unauthorized model swaps.
 
 ### ⛓️ 3. Tamper-Evident Inference Provenance Ledger
-* **Append-Only Cryptographic Chain**: Every logged inference record is cryptographically linked to the previous record (`previous_record_hash` $\to$ current HMAC), forming an immutable hash chain.
+* **Append-Only Cryptographic Chain**: Every logged inference record is cryptographically linked to the previous record (`previous_record_hash` $\to$ current HMAC), forming a tamper-evident forward hash chain.
 * **Strict Monotonic Sequencing**: Enforces gapless, strictly increasing `sequence_number` counters to instantly detect dropped, injected, or reordered frames.
 * **Anti-Replay Nonce Verification**: Cryptographic UUID nonces prevent replay attacks from recorded telemetry streams.
 * **Canonical JSON Serialization**: Deterministic key sorting (`sort_keys=True`) and compact whitespace elimination (`separators=(',', ':')`) preventing byte-level hashing ambiguities.
@@ -164,8 +164,13 @@ The table below reflects empirical results measured directly from our reproducib
 | **Ref-Calibrated Mahalanobis** | Out-of-Distribution (OOD) Samples | 19.66 ms | 23.2 KB | 0.692 | 0.600 | 0.643 | 0.796 | 0.783 | 0.133 |
 
 > [!NOTE]
+> * **Dataset Composition & Split Strategy**: Evaluated using `scripts/run_benchmark.py` across an independent **Evaluation Benchmark Split** (130 samples) calibrated against 30 clean reference baselines. All samples are synthetic CV images generated offline (`scripts/generate_benchmark.py`) to systematically test edge cases (resizing, JPEG recompression, patch overlays, class label permutations).
 > * **Zero False Positives on Label Permutations**: The Hungarian bipartite matcher achieves an F1-score of 1.000 with 0 false positives when clean annotations are merely reordered.
 > * **Robust Outlier Resistance**: Reference-calibrated MAD achieves **0.987 AUROC**, substantially outperforming uncalibrated global Z-scores that suffer from variance inflation when poisoned samples exceed 10% of the dataset.
+> * **Known Limitations & Weaknesses**:
+>   * *Perceptual dHash False Positive Rate (FPR = 0.467)*: Mild natural variations and heavy JPEG recompression can trigger perceptual difference flags, necessitating human review for flagged candidate pairs.
+>   * *Sliding Shannon Patch Entropy Recall (Recall = 0.400)*: Detects localized solid/low-entropy patches (e.g., BadNets watermarks), but misses blended, transparent, or diffuse triggers that match surrounding background entropy.
+>   * *Synthetic Benchmark Boundary*: These empirical measurements reflect controlled synthetic perturbations and do not establish statistical superiority against adaptive, unbounded real-world adversaries.
 
 ---
 
@@ -292,63 +297,79 @@ from src.dataset.security_checks import (
     check_data_poisoning,
 )
 
-dataset_path = Path("data/fixtures/clean")
-ref_annotations = Path("data/fixtures/clean/annotations_reference.json")
+images_dir = Path("data/fixtures/clean/images")
+labels_dir = Path("data/fixtures/clean/labels")
 
-# 1. Parse YOLO dataset
-dataset_summary = inspect_yolo_dataset(dataset_path)
+# 1. Parse YOLO dataset annotations and images
+dataset_result = inspect_yolo_dataset(images_dir, labels_dir)
+records = dataset_result["records"]
+candidate_annotations = {r["filename"]: r.get("annotations", []) for r in records}
 
-# 2. Execute statistical heuristics
-findings = []
-findings.extend(check_duplicate_flooding(dataset_path))
-findings.extend(check_trigger_patterns(dataset_path))
-findings.extend(check_data_poisoning(dataset_path))
-findings.extend(check_label_flipping(dataset_path, reference_annotations_path=ref_annotations))
+# 2. Execute statistical and perceptual heuristics
+findings = [
+    check_duplicate_flooding(records),
+    check_trigger_patterns([Path(r["path"]) for r in records if Path(r["path"]).exists()]),
+    check_data_poisoning(records),
+    check_label_flipping(candidate_annotations, reference_annotations=None),
+]
 
-print(f"Dataset audited: {dataset_summary.total_images} images. Findings: {len(findings)}")
+print(f"Dataset audited: {dataset_result['total_images']} images. Findings: {len(findings)}")
 ```
 
 ### 2. Cryptographic Model Manifest & Verification
 
 ```python
 from pathlib import Path
-from src.models.integrity import inspect_model, create_manifest, verify_manifest_signature
+from src.models.integrity import (
+    build_manifest,
+    save_manifest,
+    load_manifest,
+    verify_manifest,
+    inspect_model,
+)
 
 model_path = Path("models/fixtures/dummy_detector.pt")
 manifest_path = Path("models/fixtures/manifest.json")
+signing_secret = b"my_manifest_signing_key_32_bytes"
 
-# 1. Create a signed manifest
-manifest = create_manifest(
-    model_dir=model_path.parent,
-    output_path=manifest_path,
-    private_key_path=Path("private_key.pem")
-)
+# 1. Build and sign a cryptographic model manifest
+raw_manifest = build_manifest([model_path])
+save_manifest(raw_manifest, manifest_path, secret=signing_secret)
 
-# 2. Inspect model format safely (weights_only=True)
-inspection = inspect_model(model_path, manifest_path=manifest_path)
-print(f"Model: {model_path.name} | Status: {inspection.status} | SHA-256: {inspection.sha256[:16]}...")
+# 2. Verify manifest signature
+loaded_manifest = load_manifest(manifest_path)
+is_valid, sig_type = verify_manifest(loaded_manifest, secret=signing_secret)
+print(f"Manifest signature valid: {is_valid} ({sig_type})")
+
+# 3. Inspect model format safely (weights_only=True) and verify against manifest
+inspection = inspect_model(model_path, reference_manifest=loaded_manifest)
+hash_result = inspection["checks"]["hash_match"]["result"]
+print(f"Model: {inspection['filename']} | Hash Match: {hash_result} | SHA-256: {inspection['sha256'][:16]}...")
 ```
 
 ### 3. Recording and Verifying Inference Provenance
 
 ```python
-from src.inference.provenance import record_inference_event
-from src.inference.verifier import verify_inference_chain
+from src.inference.verifier import record_inference, verify_inference_record, check_inference_replay
+from src.inference.provenance import verify_provenance_chain
 
-# 1. Log an inference event with HMAC cryptographic sealing
-record = record_inference_event(
+secret_key = b"my_secret_signing_key_32_bytes!"
+
+# 1. Sign an inference event with HMAC cryptographic sealing
+record = record_inference(
     image_id="frame_0001.png",
     model_id="yolov8n-coco",
-    prediction={"classes": ["pedestrian"], "confidences": [0.94], "boxes": [[10, 20, 50, 80]]},
-    execution_time_ms=14.2,
-    secret_key="my_secret_signing_key"
+    predictions=[{"class_id": 0, "confidence": 0.94, "bbox": [10, 20, 50, 80]}],
+    secret=secret_key,
 )
 
-# 2. Verify provenance integrity across the log
-verification_findings = verify_inference_chain(
-    log_path=Path("audit_events.sqlite"),
-    secret_key="my_secret_signing_key"
-)
+# 2. Verify individual record HMAC integrity and replay defense
+integrity_finding = verify_inference_record(record, secret=secret_key)
+replay_finding = check_inference_replay(record)
+
+# 3. Verify entire provenance chain integrity
+is_valid, msg, anomalies = verify_provenance_chain()
+print(f"Provenance chain valid: {is_valid} ({msg})")
 ```
 
 ---
@@ -378,14 +399,18 @@ python -m src.cli audit-all --dataset-dir data/fixtures/clean --model-path model
 | Method | Endpoint | Description | Request Payload / Params |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/health` | Service health status check | None |
+| `GET` | `/api/coverage` | Comprehensive security check inventory and coverage metadata | None |
 | `POST` | `/api/upload/dataset` | Upload ZIP dataset (YOLO/COCO) with Zip-Slip defense | `multipart/form-data` (`file`, `format`) |
 | `POST` | `/api/audit/dataset` | Trigger asynchronous dataset security audit | `{"dataset_path": "...", "format": "yolo"}` |
 | `POST` | `/api/audit/model` | Trigger model structural & cryptographic audit | `{"model_path": "...", "manifest_path": "..."}` |
-| `POST` | `/api/inference/log` | Log an inference prediction with HMAC provenance | `{"image_id": "...", "model_id": "...", "prediction": {...}}` |
-| `GET` | `/api/audit/status` | Polling endpoint for active background audits | None |
+| `POST` | `/api/audit/inference` | Trigger HMAC and replay audit on inference log | `{"log_path": "..."}` |
+| `POST` | `/api/audit/full` | Combined end-to-end pipeline audit | `{"dataset_path": "...", "model_path": "...", "inference_log": "..."}` |
+| `GET` | `/api/audit/status` | Real-time background task lifecycle tracking | Optional query param `?audit_id={id}` |
+| `GET` | `/api/audit/verify-chain/{id}` | Cryptographically verify audit events hash chain | Path parameter `id` |
+| `POST` | `/api/provenance/verify-chain` | Verify inference provenance SQLite hash chain | None |
 | `GET` | `/api/audit/events/{id}` | Chronological audit trail from SQLite ledger | Path parameter `id` (sanitized alphanumeric) |
 | `GET` | `/api/audit/records/{id}` | Detailed image-level anomaly records | Path parameter `id` |
-| `GET` | `/api/reports/html/{id}` | Download self-contained offline HTML forensic report | Path parameter `id` |
+| `GET` | `/api/reports/html/{id}` | Download self-contained offline HTML forensic report (404 if not found) | Path parameter `id` |
 | `GET` | `/api/reports` | List all historical JSON audit reports | None |
 
 ---
@@ -443,7 +468,7 @@ trusttracecv/
 │       ├── index.html
 │       ├── app.js
 │       └── style.css
-├── tests/                      # Automated test suite (155 pytest cases)
+├── tests/                      # Automated test suite (171 pytest cases)
 │   ├── conftest.py
 │   ├── test_api.py
 │   ├── test_audit_security_fixes.py
@@ -452,7 +477,8 @@ trusttracecv/
 │   ├── test_dataset_benchmarking.py
 │   ├── test_inference.py
 │   ├── test_models.py
-│   └── test_report.py
+│   ├── test_report.py
+│   └── test_stage2_security_fixes.py
 ├── .env.example                # Template for cryptographic secrets
 ├── .gitignore                  # Git ignore rules
 ├── LICENSE                     # MIT License
@@ -492,18 +518,19 @@ pytest --cov=src tests/
 ================================ test session starts =================================
 platform win32 -- Python 3.12.14, pytest-8.3.3
 rootdir: trusttracecv
-collected 155 items
+collected 171 items
 
-tests/test_api.py .........................                                    [ 16%]
-tests/test_audit_security_fixes.py ........................................... [ 44%]
-tests/test_behavior.py ........                                                [ 49%]
-tests/test_dataset.py .......................                                  [ 64%]
-tests/test_dataset_benchmarking.py ....................                        [ 77%]
-tests/test_inference.py .................                                      [ 88%]
-tests/test_models.py .................                                         [ 99%]
-tests/test_report.py .                                                         [100%]
+tests/test_api.py .........................                                    [ 15%]
+tests/test_audit_security_fixes.py ........................................... [ 40%]
+tests/test_behavior.py ........                                                [ 45%]
+tests/test_dataset.py .......................                                  [ 58%]
+tests/test_dataset_benchmarking.py ....................                        [ 70%]
+tests/test_inference.py .................                                      [ 80%]
+tests/test_models.py .................                                         [ 90%]
+tests/test_report.py .                                                         [ 91%]
+tests/test_stage2_security_fixes.py ................                           [100%]
 
-================================= 155 passed in 20.30s ================================
+================================= 171 passed in 6.23s ================================
 ```
 
 ---

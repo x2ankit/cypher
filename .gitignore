@@ -26,16 +26,21 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Environment
+# Environment & Secrets
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+*.key
+*.pem
+!public_key.pem
 
-# Project specific caches and weights
+# Project specific caches, weights & databases
 /data/
 !/data/fixtures/
 /models/
@@ -44,8 +49,12 @@ venv.bak/
 *.pth
 *.onnx
 *.weights
+*.sqlite
+*.sqlite3
+*.db
 .cache/
 logs/
+*.log
 
 # IDEs
 .idea/
@@ -53,8 +62,9 @@ logs/
 *.swp
 *.swo
 
-# MacOS
+# OS
 .DS_Store
+Thumbs.db
 
 # Generated Files
 datasets/
@@ -62,4 +72,6 @@ reports/
 audit_events.sqlite
 test_dataset.zip
 .pytest_cache/
+.coverage
+.coverage.*
 vendor/upstream/

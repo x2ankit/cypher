@@ -20,7 +20,15 @@ TRUSTTRACE CV
 │   ├── inference/        # Cryptographic signing, provenance chain, and tamper detection
 │   │   ├── verifier.py
 │   │   └── provenance.py
-│   ├── reporting/        # Report generation and coverage documentation
+│   ├── evidence/         # Evidence correlation and unified verdict resolution
+│   │   └── correlator.py
+│   ├── reference/        # Reference profiles and dataset baseline statistics
+│   │   └── profile.py
+│   ├── shift/            # Feature and distribution shift tracking
+│   │   └── distribution.py
+│   ├── reporting/        # Report generation, HTML export, and coverage documentation
+│   │   ├── html_generator.py
+│   │   ├── benchmark_runner.py
 │   │   └── report_generator.py
 │   ├── integrations/     # Adapters for upstream open-source tools
 │   │   ├── art_adapter.py
@@ -30,8 +38,9 @@ TRUSTTRACE CV
 │   │   ├── cosign_adapter.py
 │   │   ├── intoto_adapter.py
 │   │   └── trojai_adapter.py
-│   ├── api/              # FastAPI backend serving endpoints for all checks
-│   │   └── app.py
+│   ├── api/              # FastAPI backend and tamper-evident SQLite audit ledger
+│   │   ├── app.py
+│   │   └── audit_db.py
 │   ├── ui/               # HTML/CSS/JS Dynamic frontend
 │   │   ├── index.html
 │   │   ├── style.css
@@ -42,7 +51,7 @@ TRUSTTRACE CV
 │   ├── generate_benchmark.py
 │   ├── run_benchmark.py
 │   └── demo_behavior.py
-├── tests/                # 155 automated pytest cases (cryptographic integrity, provenance, dataset benchmarking)
+├── tests/                # 171 automated pytest cases (cryptographic integrity, provenance, dataset benchmarking, security regression)
 └── docs/                 # Comprehensive documentation
 ```
 
