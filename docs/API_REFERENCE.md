@@ -1,6 +1,6 @@
 # API Reference
 
-The TRUSTTRACE CV backend exposes the following REST endpoints. The API is hosted at `http://localhost:8000` (or `http://localhost:8001`) by default.
+The TRUSTTRACE CV backend exposes the following REST endpoints. The API is hosted at `http://127.0.0.1:8000` by default (configurable via `HOST` and `PORT`).
 
 ## Dataset Uploads
 

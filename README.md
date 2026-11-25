@@ -39,42 +39,46 @@
 
 ## 📖 Overview
 
-**TrustTrace CV** is an offline-first, model-agnostic assurance and cryptographic provenance toolkit designed specifically for safety-critical Computer Vision (CV) pipelines. Modern computer vision systems deployed in autonomous vehicles, robotics, healthcare diagnostics, and automated inspection are increasingly vulnerable to **data poisoning**, **Trojan backdoor insertion**, **model substitution**, and **silent inference log manipulation**.
+**TrustTrace CV** is an offline-first, model-agnostic assurance and cryptographic provenance toolkit designed specifically for Computer Vision (CV) pipelines. Modern computer vision systems deployed in safety-critical domains are vulnerable to **data poisoning**, **Trojan backdoor insertion**, **model substitution**, and **silent inference log manipulation**.
 
-Standard MLOps tools focus either on data validation or post-deployment monitoring without verifying cryptographic trust. **TrustTrace CV** bridges this security gap by delivering **zero-trust cryptographic verification**, **mathematically principled statistical heuristics**, and a **tamper-evident hash-chained provenance ledger**—operating entirely **air-gapped** with zero external cloud dependencies.
+TrustTrace CV provides verifiable cryptographic integrity checking and statistical anomaly heuristics across three core stages of the computer vision lifecycle:
+* **Dataset Integrity**: Detecting exact byte flooding, perceptual near-duplicates (dHash), label and bounding box perturbations (Hungarian IoU matching), localized solid backdoor triggers (sliding Shannon patch entropy), and reference-calibrated distribution shifts (MAD and Mahalanobis distance).
+* **Model Integrity**: Verifying model artifact digests against signed cryptographic manifests (HMAC-SHA256 or RSA-2048) and safely inspecting model architectures without arbitrary unpickling (`weights_only=True`).
+* **Inference Provenance**: Signing prediction telemetry with HMAC-SHA256, strictly monotonic sequence counters, and anti-replay nonces stored in a tamper-evident SQLite forward hash chain.
+* **Forensic Reporting & API**: Emitting self-contained offline HTML audit reports with embedded visualizations, served by a FastAPI backend and browser dashboard.
 
 ---
 
 ## ✨ Key Features
 
 ### 📁 1. Dataset Integrity & Poisoning Defense
-* **Exact Duplicate Flooding (`SEC-DS-001`)**: High-throughput cryptographic SHA-256 byte hashing to flag adversarial sample flooding and train/test leakage.
-* **Perceptual Near-Duplicate Detection (`SEC-DS-001b`)**: 64-bit Difference Hash (dHash) with calibrated Hamming distance filtering to identify recompressed (JPEG quality shift), resized, or subtly filtered duplicates.
+* **Exact Duplicate Flooding (`SEC-DS-001`)**: High-throughput cryptographic SHA-256 byte hashing to flag exact sample duplication and train/test leakage.
+* **Perceptual Near-Duplicate Detection (`SEC-DS-001b`)**: 64-bit Difference Hash (dHash) with calibrated Hamming distance filtering ($\le 8$) to identify recompressed (JPEG quality shifts) and resized near-duplicates.
 * **Label Flipping & BBox Integrity (`SEC-DS-002`)**: Optimal bipartite matching via the **Hungarian algorithm (Kuhn-Munkres)** with class affinity tie-breaking ($IoU \ge 0.50$). Dissected into `CLASS_CHANGE`, `BBOX_MODIFIED`, `MISSING_ANNOTATION`, and `ADDITIONAL_ANNOTATION`. Guaranteed 0 false positives under annotation reordering.
 * **Backdoor Trigger Pattern Detection (`SEC-DS-003`)**: Sliding-window Shannon patch entropy analysis ($16 \times 16$ patches) detecting low-entropy synthetic overlays, BadNets triggers, and solid pixel watermarks.
 * **Data Poisoning & Distribution Shift (`SEC-DS-004`)**: Robust, reference-calibrated Modified Z-scores using **Median and Median Absolute Deviation (MAD)** across color spaces, resisting heavy outlier masking.
-* **Out-of-Distribution (OOD) Detection (`SEC-DS-005`)**: Reference-calibrated channel-covariance **Mahalanobis Distance** identifying semantic domain anomalies and corruptions.
+* **Out-of-Distribution (OOD) Detection (`SEC-DS-005`)**: Reference-calibrated channel-covariance **Mahalanobis Distance** identifying statistical domain shifts and corruptions.
 * **Structural Schema Validation**: Offline parsers for **YOLO (v5/v8)** text coordinates and **COCO 1.0 JSON** schemas.
 
 ### 🧠 2. Model Integrity & Checkpoint Security
 * **Cryptographic Manifest Hashing**: SHA-256 digest calculation for model weights, architectures, and associated assets.
 * **Dual-Scheme Signature Verification**:
-  * **Symmetric HMAC-SHA256**: High-speed, local tamper detection with timing-attack safe comparisons (`hmac.compare_digest`).
-  * **Asymmetric RSA-2048 PKCS#1v15**: Enterprise-grade public-key attestation using X.509 PEM certificates.
-* **Safe Deserialization (`weights_only=True`)**: Strict PyTorch unpickling protection preventing arbitrary code execution and Zip Slip exploits from untrusted checkpoint files.
-* **Multi-Format Support**: Native structural introspection for **PyTorch (`.pt`, `.pth`)**, **TorchScript bytecode (`.ts`)**, and **ONNX graphs (`.onnx`)**.
+  * **Symmetric HMAC-SHA256**: Timing-attack safe digest verification (`hmac.compare_digest`) using shared secret keys.
+  * **Asymmetric RSA-2048 PKCS#1 v1.5**: Public-key verification using standard PEM public keys.
+* **Safe Deserialization (`weights_only=True`)**: Strict PyTorch unpickling protection preventing arbitrary code execution from untrusted checkpoint files.
+* **Multi-Format Support**: Native structural introspection for **PyTorch (`.pt`, `.pth`)**, **TorchScript packages**, and **ONNX graphs (`.onnx`)**.
 * **Model Substitution Protection**: Deterministic parameter count and tensor structure verification preventing unauthorized model swaps.
 
 ### ⛓️ 3. Tamper-Evident Inference Provenance Ledger
-* **Append-Only Cryptographic Chain**: Every logged inference record is cryptographically linked to the previous record (`previous_record_hash` $\to$ current HMAC), forming a tamper-evident forward hash chain.
-* **Strict Monotonic Sequencing**: Enforces gapless, strictly increasing `sequence_number` counters to instantly detect dropped, injected, or reordered frames.
-* **Anti-Replay Nonce Verification**: Cryptographic UUID nonces prevent replay attacks from recorded telemetry streams.
+* **Forward Cryptographic Hash Chain**: Every logged inference record is cryptographically linked to the previous record (`previous_event_hash` $\to$ current record hash), forming a tamper-evident forward chain in SQLite.
+* **Strict Monotonic Sequencing**: Enforces gapless, strictly increasing `sequence_number` counters to detect dropped, injected, or reordered frames.
+* **Anti-Replay Nonce Verification**: 16-byte random nonces (`os.urandom(16).hex()`) prevent replay attacks from recorded telemetry streams.
 * **Canonical JSON Serialization**: Deterministic key sorting (`sort_keys=True`) and compact whitespace elimination (`separators=(',', ':')`) preventing byte-level hashing ambiguities.
 
 ### 📊 4. Full-Stack Assurance & Forensic Reporting
 * **Interactive Forensic Reports**: Generates self-contained, offline HTML audit reports with base64-embedded anomaly visualizations and complete audit logs.
 * **Live REST API & Dashboard**: Asynchronous FastAPI service paired with a lightweight web UI providing real-time mathematical audit traces.
-* **Zero-Trust Adapter Architecture**: Modular adapters for **Cleanlab**, **CleanVision**, **IBM ART**, **BackdoorBench**, **TrojAI**, **in-toto**, and **Cosign** that degrade honestly to `NOT_ASSESSED` in offline air-gapped environments without generating simulated passes.
+* **Boundary Adapter Architecture**: Explicit compatibility adapters for **Cleanlab**, **CleanVision**, **IBM ART**, **BackdoorBench**, **TrojAI**, **in-toto**, and **Cosign** that degrade honestly to `NOT_ASSESSED` in offline air-gapped environments without generating simulated passes.
 
 ---
 
@@ -82,13 +86,13 @@ Standard MLOps tools focus either on data validation or post-deployment monitori
 
 | Capability | TrustTrace CV | Deepchecks (Vision) | CleanVision | IBM ART | Sigstore / Cosign |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Primary Scope** | **End-to-End Cryptographic & Statistical Assurance** | ML Validation & Testing | Visual Data Quality | Adversarial Attacks & Robustness | Container / Artifact Signing |
-| **Cryptographic Provenance** | ✅ **Native (HMAC + RSA hash chaining)** | ❌ None | ❌ None | ❌ None | ✅ Signature only |
+| **Primary Scope** | **Cryptographic Provenance & Statistical CV Integrity** | ML Validation & Testing | Visual Data Quality | Adversarial Attacks & Robustness | Container / Artifact Signing |
+| **Cryptographic Provenance** | ✅ **Native (HMAC + RSA forward hash chain)** | ❌ None | ❌ None | ❌ None | ✅ Signature only |
 | **Hungarian BBox & Label Audit** | ✅ **Optimal Bipartite Matching** | ⚠️ Generic Heuristics | ❌ None | ⚠️ Indirect | ❌ None |
 | **Patch-Level Entropy Scans** | ✅ **Native ($16 \times 16$ Shannon Entropy)** | ❌ None | ❌ None | ⚠️ Complex Defense | ❌ None |
 | **Perceptual Near-Duplicates** | ✅ **64-bit dHash (Hamming Dist $\le 8$)** | ⚠️ Basic Duplicates | ✅ Visual Near-Dup | ❌ None | ❌ None |
 | **Monotonic Inference Ledger** | ✅ **Gapless Sequence + Anti-Replay** | ❌ None | ❌ None | ❌ None | ❌ None |
-| **Air-Gapped / Offline Native** | ✅ **100% Offline (No Cloud Calls)** | ⚠️ Requires Dependencies | ✅ Offline | ✅ Offline | ⚠️ Needs Rekor/Fulcio |
+| **Air-Gapped / Offline Native** | ✅ **100% Offline (Zero Cloud Calls)** | ⚠️ Requires Dependencies | ✅ Offline | ✅ Offline | ⚠️ Needs Rekor/Fulcio |
 | **Safe Deserialization** | ✅ **Enforced (`weights_only=True`)** | ⚠️ Standard Pickling | ❌ N/A | ⚠️ Standard Loading | ❌ N/A |
 | **Self-Contained Offline Reports** | ✅ **Interactive HTML (Base64 embed)** | ⚠️ HTML / Cloud | ❌ None | ❌ None | ❌ None |
 
@@ -150,27 +154,31 @@ flowchart TD
 
 ## 🔬 Empirical Benchmarks & Scientific Validation
 
-TrustTrace CV enforces zero experimental leakage: thresholds are selected strictly on a dedicated **Calibration Split** and evaluated on an independent **Evaluation Benchmark Split** (130 evaluation samples, 30 reference baselines).
+TrustTrace CV enforces zero experimental leakage: thresholds are selected strictly on a dedicated **Calibration Split** (25 synthetic images) and evaluated on an independent **Evaluation Benchmark Split** (130 evaluation samples, 30 clean reference baselines).
 
-The table below reflects empirical results measured directly from our reproducible test harness (`scripts/run_benchmark.py`):
+The table below reflects empirical metrics measured directly from our reproducible test harness (`scripts/run_benchmark.py`), with results saved to `reports/benchmark_results.json`:
 
-| Detector / Assurance Module | Threat Model Evaluated | Latency (ms) | Peak Memory | Precision | Recall | F1 Score | AUROC | AUPR | FPR |
+| Assurance Module | Target Threat Scenario | Latency (ms) | Peak RAM | Precision | Recall | F1 Score | AUROC | AUPR | FPR |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Exact Duplicate (SHA-256)** | Adversarial Dataset Flooding | **1.13 ms** | 13.5 KB | 0.500 | 1.000 | 0.667 | — | — | 0.111 |
-| **Perceptual dHash (Hamming $\le 8$)** | Recompression / Resizing Evasion | 367.43 ms | 127.5 KB | 0.563 | 0.900 | 0.692 | 0.742 | 0.578 | 0.467 |
-| **Hungarian IoU Matching** | Label Flipping & BBox Alterations | **59.84 ms** | 26.7 KB | **1.000** | **1.000** | **1.000** | — | — | **0.000** |
-| **Sliding Shannon Patch Entropy** | BadNets Solid Trigger Overlays | 938.31 ms | 318.7 KB | **1.000** | 0.400 | 0.571 | 0.870 | 0.864 | **0.000** |
-| **Ref-Calibrated Robust MAD** | Feature Poisoning & Color Shift | 26.90 ms | 74.6 KB | 0.714 | **1.000** | 0.833 | **0.987** | **0.977** | 0.267 |
-| **Ref-Calibrated Mahalanobis** | Out-of-Distribution (OOD) Samples | 19.66 ms | 23.2 KB | 0.692 | 0.600 | 0.643 | 0.796 | 0.783 | 0.133 |
+| **Exact Duplicate (SHA-256)** | Adversarial Dataset Flooding | **0.25 ms** | 13.5 KB | 0.500 | 1.000 | 0.667 | — | — | 0.111 |
+| **Perceptual dHash (Hamming $\le 8$)** | Recompression & Resizing Evasion | 112.05 ms | 126.8 KB | 0.563 | 0.900 | 0.692 | 0.742 | 0.578 | 0.467 |
+| **Hungarian IoU Label Matcher** | Label Flipping & BBox Alteration | **14.96 ms** | 26.7 KB | **1.000** | **1.000** | **1.000** | — | — | **0.000** |
+| **Sliding Shannon Patch Entropy** | Solid Patch Backdoor Triggers (BadNets) | 246.25 ms | 319.0 KB | **1.000** | 0.400 | 0.571 | 0.870 | 0.864 | **0.000** |
+| **Ref-Calibrated Robust MAD** | Feature Poisoning & Color Shift | 5.08 ms | 74.6 KB | 0.714 | **1.000** | 0.833 | **0.987** | **0.977** | 0.267 |
+| **Ref-Calibrated Mahalanobis** | Statistical Out-of-Distribution (OOD) | 3.29 ms | 23.2 KB | 0.692 | 0.600 | 0.643 | 0.796 | 0.783 | 0.133 |
 
 > [!NOTE]
 > * **Dataset Composition & Split Strategy**: Evaluated using `scripts/run_benchmark.py` across an independent **Evaluation Benchmark Split** (130 samples) calibrated against 30 clean reference baselines. All samples are synthetic CV images generated offline (`scripts/generate_benchmark.py`) to systematically test edge cases (resizing, JPEG recompression, patch overlays, class label permutations).
 > * **Zero False Positives on Label Permutations**: The Hungarian bipartite matcher achieves an F1-score of 1.000 with 0 false positives when clean annotations are merely reordered.
-> * **Robust Outlier Resistance**: Reference-calibrated MAD achieves **0.987 AUROC**, substantially outperforming uncalibrated global Z-scores that suffer from variance inflation when poisoned samples exceed 10% of the dataset.
+> * **Robust Outlier Resistance**: Reference-calibrated MAD achieves **0.987 AUROC**, substantially outperforming uncalibrated global Z-scores (F1 = 0.000) that suffer from variance inflation when poisoned samples exceed 10% of the dataset.
 > * **Known Limitations & Weaknesses**:
 >   * *Perceptual dHash False Positive Rate (FPR = 0.467)*: Mild natural variations and heavy JPEG recompression can trigger perceptual difference flags, necessitating human review for flagged candidate pairs.
 >   * *Sliding Shannon Patch Entropy Recall (Recall = 0.400)*: Detects localized solid/low-entropy patches (e.g., BadNets watermarks), but misses blended, transparent, or diffuse triggers that match surrounding background entropy.
 >   * *Synthetic Benchmark Boundary*: These empirical measurements reflect controlled synthetic perturbations and do not establish statistical superiority against adaptive, unbounded real-world adversaries.
+> * **Reproducing Benchmarks**:
+>   ```bash
+>   python scripts/run_benchmark.py
+>   ```
 
 ---
 
@@ -226,9 +234,10 @@ Clone the repository and install dependencies in an isolated virtual environment
 git clone https://github.com/x2ankit/trusttracecv.git
 cd trusttracecv
 
-# Create and activate conda or venv environment
-conda create -n trusttrace python=3.12 -y
-conda activate trusttrace
+# Create and activate virtual environment (venv or conda)
+python -m venv .venv
+# On Windows: .venv\Scripts\activate
+# On Linux/macOS: source .venv/bin/activate
 
 # Install core dependencies
 pip install -r requirements.txt
@@ -242,7 +251,12 @@ TrustTrace CV enforces zero hardcoded secrets. Copy the environment template and
 cp .env.example .env
 ```
 
-Edit `.env` to supply high-entropy secrets for cryptographic signing:
+Generate random 32-byte secret keys:
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Edit `.env` to configure your keys and storage paths:
 ```ini
 # Cryptographic Keys (Required for HMAC operations)
 TRUSTTRACE_CV_HMAC_SECRET="replace_with_a_secure_random_hmac_key_for_inference"
@@ -251,9 +265,17 @@ TRUSTTRACE_CV_MANIFEST_SECRET="replace_with_a_secure_random_manifest_hmac_key"
 # Optional: Path to RSA keys for asymmetric manifest signing and verification
 TRUSTTRACE_PRIVATE_KEY_PATH="./private_key.pem"
 TRUSTTRACE_PUBLIC_KEY_PATH="./public_key.pem"
+
+# Storage Paths (Configurable SQLite ledgers)
+TRUSTTRACE_AUDIT_DB="./audit_events.sqlite"
+TRUSTTRACE_PROVENANCE_DB="./data/provenance.db"
+
+# API Configuration
+PORT=8000
+HOST="127.0.0.1"
 ```
 
-To generate a standard RSA-2048 keypair:
+To generate an RSA-2048 keypair for asymmetric manifest signing:
 ```bash
 openssl genrsa -out private_key.pem 2048
 openssl rsa -in private_key.pem -pubout -out public_key.pem
@@ -267,7 +289,7 @@ Generate reproducible offline test datasets and run the full test suite:
 # Generate synthetic dataset and model fixtures
 python scripts/generate_fixtures.py
 
-# Run all 155 automated unit & integration tests
+# Run all 171 automated unit & integration tests
 pytest tests/ -v
 ```
 
@@ -279,7 +301,7 @@ Start the FastAPI backend with the interactive UI:
 python run_server.py
 ```
 
-Open your browser at **`http://localhost:8001`** (or `http://localhost:8000`) to inspect datasets, audit models, and review live cryptographic event logs.
+Open your browser at **`http://127.0.0.1:8000`** to inspect datasets, audit models, and review live cryptographic event logs.
 
 ---
 
@@ -305,7 +327,7 @@ dataset_result = inspect_yolo_dataset(images_dir, labels_dir)
 records = dataset_result["records"]
 candidate_annotations = {r["filename"]: r.get("annotations", []) for r in records}
 
-# 2. Execute statistical and perceptual heuristics
+# 2. Execute statistical heuristics
 findings = [
     check_duplicate_flooding(records),
     check_trigger_patterns([Path(r["path"]) for r in records if Path(r["path"]).exists()]),
@@ -313,12 +335,13 @@ findings = [
     check_label_flipping(candidate_annotations, reference_annotations=None),
 ]
 
-print(f"Dataset audited: {dataset_result['total_images']} images. Findings: {len(findings)}")
+print(f"Audited {dataset_result['total_images']} images; generated {len(findings)} security findings.")
 ```
 
 ### 2. Cryptographic Model Manifest & Verification
 
 ```python
+import os
 from pathlib import Path
 from src.models.integrity import (
     build_manifest,
@@ -328,48 +351,61 @@ from src.models.integrity import (
     inspect_model,
 )
 
+# Load secret from environment (or supply high-entropy key)
+# Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+signing_secret = os.environ.get("TRUSTTRACE_CV_MANIFEST_SECRET", "").encode("utf-8")
+if not signing_secret:
+    raise ValueError("Set TRUSTTRACE_CV_MANIFEST_SECRET before signing model manifests.")
+
 model_path = Path("models/fixtures/dummy_detector.pt")
 manifest_path = Path("models/fixtures/manifest.json")
-signing_secret = b"my_manifest_signing_key_32_bytes"
 
-# 1. Build and sign a cryptographic model manifest
+# 1. Build and sign cryptographic model manifest
 raw_manifest = build_manifest([model_path])
 save_manifest(raw_manifest, manifest_path, secret=signing_secret)
 
-# 2. Verify manifest signature
+# 2. Verify manifest signature (HMAC or RSA)
 loaded_manifest = load_manifest(manifest_path)
 is_valid, sig_type = verify_manifest(loaded_manifest, secret=signing_secret)
-print(f"Manifest signature valid: {is_valid} ({sig_type})")
+print(f"Manifest verification: valid={is_valid} (scheme={sig_type})")
 
-# 3. Inspect model format safely (weights_only=True) and verify against manifest
+# 3. Inspect model format safely (weights_only=True) and match against manifest
 inspection = inspect_model(model_path, reference_manifest=loaded_manifest)
 hash_result = inspection["checks"]["hash_match"]["result"]
-print(f"Model: {inspection['filename']} | Hash Match: {hash_result} | SHA-256: {inspection['sha256'][:16]}...")
+print(f"Model: {inspection['filename']} | Hash check: {hash_result} | SHA-256: {inspection['sha256'][:16]}...")
 ```
 
 ### 3. Recording and Verifying Inference Provenance
 
 ```python
-from src.inference.verifier import record_inference, verify_inference_record, check_inference_replay
-from src.inference.provenance import verify_provenance_chain
+import os
+from src.inference.verifier import record_inference, verify_inference_record
+from src.inference.provenance import record_inference_event, verify_provenance_chain
 
-secret_key = b"my_secret_signing_key_32_bytes!"
+# Load HMAC signing secret from environment
+secret_key = os.environ.get("TRUSTTRACE_CV_HMAC_SECRET", "").encode("utf-8")
+if not secret_key:
+    raise ValueError("Set TRUSTTRACE_CV_HMAC_SECRET before signing inference records.")
 
-# 1. Sign an inference event with HMAC cryptographic sealing
+# 1. Sign inference output with HMAC-SHA256 and anti-replay nonce
 record = record_inference(
     image_id="frame_0001.png",
-    model_id="yolov8n-coco",
-    predictions=[{"class_id": 0, "confidence": 0.94, "bbox": [10, 20, 50, 80]}],
+    model_id="dummy_detector",
+    predictions=[{"class_id": 0, "score": 0.94, "bbox": [10, 20, 50, 80]}],
     secret=secret_key,
 )
 
-# 2. Verify individual record HMAC integrity and replay defense
+# 2. Verify individual record HMAC signature integrity
 integrity_finding = verify_inference_record(record, secret=secret_key)
-replay_finding = check_inference_replay(record)
+print(f"Record integrity: {integrity_finding['result']}")
 
-# 3. Verify entire provenance chain integrity
+# 3. Commit record to SQLite tamper-evident provenance ledger
+success, message, record_hash = record_inference_event(record, secret=secret_key)
+print(f"Recorded in provenance ledger: {success} ({message})")
+
+# 4. Verify entire SQLite forward hash chain and sequence continuity
 is_valid, msg, anomalies = verify_provenance_chain()
-print(f"Provenance chain valid: {is_valid} ({msg})")
+print(f"Provenance ledger status: valid={is_valid} ({msg})")
 ```
 
 ---
@@ -419,73 +455,86 @@ python -m src.cli audit-all --dataset-dir data/fixtures/clean --model-path model
 
 ```
 trusttracecv/
-├── assets/                     # Architectural diagrams, dashboard previews
+├── assets/                     # Visual assets and UI previews
 │   ├── ui.png
 │   └── ui_screenshot.jpg
-├── data/                       # Dataset directories (ignored by git)
-│   ├── benchmark/              # Calibration & evaluation splits
-│   └── fixtures/               # Synthetic YOLO/COCO testing fixtures
-├── docs/                       # Technical specifications & guides
+├── docs/                       # Specifications and reference documentation
 │   ├── API_REFERENCE.md        # Comprehensive REST API specifications
-│   ├── ARCHITECTURE.md         # Subsystem dataflows & architectural design
-│   ├── DATASET_TESTING.md      # Mathematical formulations & benchmark protocols
-│   ├── DEVELOPMENT.md          # Developer setup & contribution guidelines
+│   ├── ARCHITECTURE.md         # Subsystem dataflow and component specs
+│   ├── DATASET_TESTING.md      # Statistical testing and benchmark protocols
+│   ├── DEVELOPMENT.md          # Local developer setup and contribution guide
 │   └── SECURITY_AND_THREAT_MODEL.md # Threat models, cryptanalysis & boundaries
-├── models/                     # Model weights & manifests (ignored by git)
-│   └── fixtures/               # Synthetic PyTorch/TorchScript test models
-├── reports/                    # Generated forensic JSON & HTML audit outputs
-│   └── benchmark_results.json  # Empirical benchmark results
-├── scripts/                    # Generation and benchmark utilities
-│   ├── generate_fixtures.py    # Synthetic fixture generator
-│   ├── generate_benchmark.py   # Benchmark split generator
-│   ├── run_benchmark.py        # Scientific benchmark runner
-│   └── demo_behavior.py        # End-to-end behavioral fingerprinting demo
+├── scripts/                    # Generation, benchmark and diagnostic scripts
+│   ├── demo_behavior.py        # Behavioral fingerprinting demo
+│   ├── generate_benchmark.py   # Benchmark split generator (clean, duplicates, triggers, OOD)
+│   ├── generate_fixtures.py    # Deterministic test fixture generator
+│   └── run_benchmark.py        # Statistical evaluation and latency benchmark runner
 ├── src/                        # Core TrustTrace CV library
 │   ├── api/                    # FastAPI backend & SQLite audit DB
-│   │   ├── app.py
-│   │   └── audit_db.py
+│   │   ├── app.py              # REST API routes and task state manager
+│   │   └── audit_db.py         # Audit event logger and hash chain verifier
 │   ├── dataset/                # Dataset inspection & statistical security checks
-│   │   ├── inspector.py
-│   │   └── security_checks.py
+│   │   ├── inspector.py        # COCO and YOLO dataset metadata extractor
+│   │   └── security_checks.py  # SHA-256, dHash, Hungarian matching, Shannon entropy, MAD, Mahalanobis
 │   ├── evidence/               # Evidence correlation & verdict calculation
-│   │   └── correlator.py
+│   │   └── correlator.py       # Evidence model and multi-source finding aggregator
 │   ├── inference/              # Inference HMAC provenance & replay verifier
-│   │   ├── provenance.py
-│   │   └── verifier.py
-│   ├── integrations/           # Zero-trust adapters (Cleanlab, ART, in-toto, etc.)
+│   │   ├── provenance.py       # SQLite inference event store and hash chain validator
+│   │   └── verifier.py         # Canonical payload HMAC signer and replay detector
+│   ├── integrations/           # Boundary adapters (degrade to NOT_ASSESSED when unconfigured)
+│   │   ├── art_adapter.py      # IBM Adversarial Robustness Toolbox adapter
+│   │   ├── backdoorbench_adapter.py # BackdoorBench adapter
+│   │   ├── cleanlab_adapter.py # Cleanlab label issue adapter
+│   │   ├── cleanvision_adapter.py # CleanVision visual anomaly adapter
+│   │   ├── cosign_adapter.py   # Cosign container/blob verification adapter
+│   │   ├── intoto_adapter.py   # in-toto provenance link metadata generator
+│   │   └── trojai_adapter.py   # NIST TrojAI benchmark adapter
 │   ├── models/                 # Model integrity, manifests & runtime probes
-│   │   ├── behavioral_fingerprint.py
-│   │   ├── controlled_transformations.py
-│   │   ├── integrity.py
-│   │   ├── runtime.py
-│   │   └── trigger_probe.py
+│   │   ├── behavioral_fingerprint.py # Prediction distribution fingerprinting
+│   │   ├── controlled_transformations.py # Synthetic noise and blur transforms
+│   │   ├── integrity.py        # PyTorch/TorchScript/ONNX inspection and manifest verification
+│   │   ├── performance.py      # Precision, recall, and IoU evaluation
+│   │   ├── runtime.py          # OnnxRuntime and PyTorch execution harness
+│   │   └── trigger_probe.py    # Backdoor trigger sensitivity probe
+│   ├── reference/              # Reference profile management
+│   │   └── profile.py          # Dataset baseline statistical profiles
 │   ├── reporting/              # HTML & JSON report generators
-│   │   ├── html_generator.py
-│   │   └── report_generator.py
+│   │   ├── benchmark_runner.py # Benchmark suite test harness
+│   │   ├── html_generator.py   # Offline standalone HTML report generator
+│   │   └── report_generator.py # JSON assurance verdict and evidence summary generator
 │   ├── shift/                  # Distribution shift detection
-│   │   └── distribution.py
-│   └── ui/                     # Lightweight frontend dashboard
-│       ├── index.html
-│       ├── app.js
-│       └── style.css
+│   │   └── distribution.py     # Channel statistics and distribution shift analyzer
+│   ├── ui/                     # Lightweight browser frontend
+│   │   ├── app.js              # Dashboard client logic
+│   │   ├── index.html          # Web UI layout
+│   │   └── style.css           # UI stylesheet
+│   └── cli.py                  # Typer-based command-line interface
 ├── tests/                      # Automated test suite (171 pytest cases)
-│   ├── conftest.py
-│   ├── test_api.py
-│   ├── test_audit_security_fixes.py
-│   ├── test_behavior.py
-│   ├── test_dataset.py
-│   ├── test_dataset_benchmarking.py
-│   ├── test_inference.py
-│   ├── test_models.py
-│   ├── test_report.py
-│   └── test_stage2_security_fixes.py
-├── .env.example                # Template for cryptographic secrets
-├── .gitignore                  # Git ignore rules
+│   ├── conftest.py             # Test fixtures and environment isolation
+│   ├── test_api.py             # API endpoint tests
+│   ├── test_audit_security_fixes.py # Cryptographic and verdict correctness tests
+│   ├── test_behavior.py        # Behavioral fingerprinting tests
+│   ├── test_dataset.py         # Dataset parser and heuristic tests
+│   ├── test_dataset_benchmarking.py # Synthetic benchmark split tests
+│   ├── test_inference.py       # Inference provenance chain tests
+│   ├── test_models.py          # Model integrity and manifest tests
+│   ├── test_report.py          # Report generator and verdict tests
+│   └── test_stage2_security_fixes.py # Security regression test suite (16 tests)
+├── .env.example                # Template for environment variables and secrets
+├── .gitignore                  # Git exclusion rules
 ├── LICENSE                     # MIT License
-├── pytest.ini                  # Pytest configuration
+├── public_key.pem              # Sample RSA verification key fixture
+├── pytest.ini                  # Pytest runner configuration
 ├── requirements.txt            # Python dependencies
-└── run_server.py               # Server entry point
+└── run_server.py               # Uvicorn server entry point
 ```
+
+### 📁 Local / Generated Artifacts (Excluded by `.gitignore`)
+* `data/fixtures/`: Synthetic YOLO and COCO datasets generated offline via `python scripts/generate_fixtures.py`.
+* `data/benchmark/`: Reference (30 samples), calibration (25 samples), and evaluation (130 samples) benchmark splits generated via `python scripts/generate_benchmark.py`.
+* `models/fixtures/`: Synthetic PyTorch state dicts (`dummy_detector.pt`), TorchScript bytecode (`dummy_detector_ts.pt`), and signed manifests.
+* `reports/`: Audit JSON reports and empirical benchmark outputs (`reports/benchmark_results.json`).
+* `audit_events.sqlite` & `data/provenance.db`: Local SQLite tamper-evident event stores initialized at runtime.
 
 ---
 

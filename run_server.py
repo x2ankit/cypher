@@ -17,10 +17,12 @@ sys.path.insert(0, ".")
 import uvicorn
 
 if __name__ == "__main__":
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "8000"))
     uvicorn.run(
         "src.api.app:app",
-        host="127.0.0.1",
-        port=8001,
+        host=host,
+        port=port,
         reload=False,
         log_level="info",
     )
