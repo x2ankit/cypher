@@ -63,7 +63,7 @@ def canonicalize_record(record: Dict[str, Any]) -> str:
     """Canonicalize the record before hashing/signing."""
     return json.dumps(record, sort_keys=True, separators=(',', ':'))
 
-def record_inference_event(event_data: Dict[str, Any]) -> Tuple[bool, str, str]:
+def record_inference_event(event_data: Dict[str, Any], secret: Optional[bytes] = None) -> Tuple[bool, str, str]:
     """
     Records an inference event in SQLite tamper-evident store.
     Checks for tampering, sequence validation, and replay using record_hash.
@@ -91,8 +91,25 @@ def record_inference_event(event_data: Dict[str, Any]) -> Tuple[bool, str, str]:
     if not isinstance(seq_num, int) or seq_num < 0:
         return False, "INVALID_SEQUENCE_NUMBER", ""
 
-    from src.inference.verifier import canonicalize_inference_payload
+    from src.inference.verifier import canonicalize_inference_payload, get_hmac_secret
     import hmac
+
+    # Enforce HMAC signature authentication strictly against configured or supplied secret
+    configured_secret = secret if secret is not None else get_hmac_secret()
+
+    if "hmac_sig" in event_data:
+        stored_sig = str(event_data.get("hmac_sig", "")).strip()
+        if not stored_sig:
+            return False, "EMPTY_HMAC_SIGNATURE", ""
+        if not configured_secret:
+            return False, "HMAC_SECRET_UNAVAILABLE", ""
+        canonical_bytes = canonicalize_inference_payload(event_data)
+        expected_sig = hmac.new(configured_secret, canonical_bytes, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(stored_sig, expected_sig):
+            return False, "INVALID_HMAC_SIGNATURE", ""
+    else:
+        # Reject unsigned records
+        return False, "MISSING_HMAC_SIGNATURE", ""
 
     if "payload_hash" in event_data:
         canonical_bytes = canonicalize_inference_payload(event_data)

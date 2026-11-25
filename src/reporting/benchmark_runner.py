@@ -17,9 +17,9 @@ def run_benchmarks():
     # Requires pytest-json-report
     try:
         import pytest_jsonreport
-    except ImportError:
-        logger.warning("pytest-json-report not installed. Attempting to install...")
-        subprocess.run(["pip", "install", "pytest-json-report"], check=True, capture_output=True)
+    except ImportError as e:
+        logger.error("pytest-json-report is not installed. Please install it in your environment: pip install pytest-json-report")
+        raise ImportError("pytest-json-report is required to run the benchmark suite.") from e
         
     result = subprocess.run(
         ["pytest", "tests/", "--json-report", "--json-report-file=.benchmark_report.json"],

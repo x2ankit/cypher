@@ -11,14 +11,7 @@ def generate_offline_html_report(audit_id: str) -> str:
     # Load dataset report
     dataset_report_path = REPORTS_DIR / f"dataset_{audit_id}.json"
     if not dataset_report_path.exists():
-        # Fallback to the latest dataset report
-        reports = sorted(REPORTS_DIR.glob("dataset_*.json"), key=os.path.getmtime, reverse=True)
-        if reports:
-            dataset_report_path = reports[0]
-    
-    if not dataset_report_path:
-        # Check if audit_id matches directly
-        pass # Handle not found
+        raise FileNotFoundError(f"Report not found for audit_id: {audit_id}")
     
     with open(dataset_report_path, "r", encoding="utf-8") as f:
         report = json.load(f)
@@ -31,7 +24,7 @@ def generate_offline_html_report(audit_id: str) -> str:
     elif "records" in report:
         records = report["records"]
         
-    events_path = ROOT / "audit_events.sqlite"
+    events_path = Path(os.environ.get("TRUSTTRACE_AUDIT_DB", str(ROOT / "audit_events.sqlite")))
     # To get events, we should ideally fetch from DB. 
     # But since we have access to the DB, we can just query it.
     import sqlite3

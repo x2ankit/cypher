@@ -231,6 +231,8 @@ def download_html_report(audit_id: str):
         return HTMLResponse(content=html_content, status_code=200, headers={
             "Content-Disposition": f'attachment; filename="trusttrace_audit_{audit_id}.html"'
         })
+    except FileNotFoundError:
+        raise HTTPException(404, f"Audit report not found: {audit_id}")
     except Exception as e:
         logger.exception("Failed to generate HTML report")
         raise HTTPException(500, str(e))
@@ -250,27 +252,123 @@ def find_image(dataset_path: str, filename: str):
     raise HTTPException(404, "Image not found.")
 
 # ---------------------------------------------------------------------------
-# Health & Status
+# Health & Status with Explicit Background Task Lifecycle Tracking
 # ---------------------------------------------------------------------------
-AUDIT_STATUS = {"status": "Idle", "detail": ""}
+import threading
+from enum import Enum
+
+class TaskState(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+_TASK_LOCK = threading.Lock()
+TASK_REGISTRY: Dict[str, Dict[str, Any]] = {}
+MAX_TERMINAL_TASKS = 200
+
+def _prune_terminal_tasks_locked():
+    """Conservative retention strategy: prune oldest finished tasks when exceeding limit. Must hold _TASK_LOCK."""
+    terminal_tasks = [
+        (tid, data.get("updated_at", 0))
+        for tid, data in TASK_REGISTRY.items()
+        if data.get("status") in (TaskState.COMPLETED.value, TaskState.FAILED.value)
+    ]
+    if len(terminal_tasks) > MAX_TERMINAL_TASKS:
+        terminal_tasks.sort(key=lambda x: x[1])
+        excess = len(terminal_tasks) - MAX_TERMINAL_TASKS
+        for i in range(excess):
+            del TASK_REGISTRY[terminal_tasks[i][0]]
+
+def set_task_state(task_id: str, state: TaskState, stage: str = "", detail: str = "", error: str = ""):
+    with _TASK_LOCK:
+        now = time.time()
+        if task_id not in TASK_REGISTRY:
+            TASK_REGISTRY[task_id] = {
+                "task_id": task_id,
+                "audit_id": task_id,
+                "status": state.value,
+                "stage": stage,
+                "detail": detail,
+                "created_at": now,
+                "updated_at": now,
+                "error": error
+            }
+        else:
+            TASK_REGISTRY[task_id]["status"] = state.value
+            if stage:
+                TASK_REGISTRY[task_id]["stage"] = stage
+            if detail:
+                TASK_REGISTRY[task_id]["detail"] = detail
+            if error:
+                TASK_REGISTRY[task_id]["error"] = error
+            TASK_REGISTRY[task_id]["updated_at"] = now
+            
+        if state in (TaskState.COMPLETED, TaskState.FAILED):
+            _prune_terminal_tasks_locked()
+
+def get_task_state(task_id: Optional[str] = None) -> Dict[str, Any]:
+    with _TASK_LOCK:
+        if task_id:
+            if task_id not in TASK_REGISTRY:
+                raise HTTPException(404, f"Task {task_id} not found.")
+            return TASK_REGISTRY[task_id]
+            
+        active_count = sum(1 for t in TASK_REGISTRY.values() if t["status"] in (TaskState.PENDING.value, TaskState.RUNNING.value))
+        
+        # When no task is running, return explicit Idle status
+        if active_count == 0:
+            latest_finished = None
+            if TASK_REGISTRY:
+                latest = max(TASK_REGISTRY.values(), key=lambda t: t.get("updated_at", 0))
+                latest_finished = {
+                    "task_id": latest["task_id"],
+                    "audit_id": latest.get("audit_id", ""),
+                    "status": latest["status"],
+                    "stage": latest.get("stage", ""),
+                    "detail": latest.get("detail", ""),
+                }
+            return {
+                "status": "Idle",
+                "detail": "No active tasks in progress.",
+                "active_tasks": 0,
+                "latest_task": latest_finished
+            }
+            
+        active_tasks = [t for t in TASK_REGISTRY.values() if t["status"] in (TaskState.PENDING.value, TaskState.RUNNING.value)]
+        latest_active = max(active_tasks, key=lambda t: t.get("updated_at", 0))
+        return {
+            "status": latest_active["status"],
+            "task_id": latest_active["task_id"],
+            "audit_id": latest_active.get("audit_id", ""),
+            "stage": latest_active.get("stage", ""),
+            "detail": latest_active.get("detail", ""),
+            "error": latest_active.get("error", ""),
+            "active_tasks": active_count
+        }
 
 @app.get("/api/health")
 def health():
     return {"status": "ok", "timestamp": time.time(), "service": "TRUSTTRACE CV"}
 
 @app.get("/api/audit/status")
-def audit_status():
-    return AUDIT_STATUS
+def audit_status(audit_id: Optional[str] = None):
+    return get_task_state(audit_id)
 
 # ---------------------------------------------------------------------------
 # Dataset audit
 # ---------------------------------------------------------------------------
-from src.api.audit_db import log_event, get_events, init_db
+from src.api.audit_db import log_event, get_events, init_db, verify_audit_chain
 
 @app.get("/api/audit/events/{audit_id}")
 def get_audit_events(audit_id: str):
     validate_audit_id(audit_id)
     return {"events": get_events(audit_id)}
+
+@app.get("/api/audit/verify-chain/{audit_id}")
+def verify_audit_events_chain(audit_id: str):
+    validate_audit_id(audit_id)
+    return verify_audit_chain(audit_id)
 
 @app.get("/api/reports")
 def list_reports():
@@ -294,86 +392,38 @@ def audit_dataset(req: DatasetAuditRequest, background_tasks: BackgroundTasks):
     else:
         validate_audit_id(req.audit_id)
     
+    set_task_state(req.audit_id, TaskState.PENDING, stage="Queued", detail="Audit task queued for background execution.")
     background_tasks.add_task(run_dataset_audit_task, req)
-    return {"status": "started", "audit_id": req.audit_id}
+    return {"status": "started", "audit_id": req.audit_id, "task_id": req.audit_id}
 
 def run_dataset_audit_task(req: DatasetAuditRequest):
     audit_id = validate_audit_id(req.audit_id)
-    base = safe_resolve(req.dataset_path, ROOT)
-    
-    log_event(audit_id, "Dataset Audit", "Initialize", {"path": req.dataset_path, "format": req.format}, "init()", {}, "STARTED", "", "Audit Initialized", "", 0, "RUNNING")
-    
-    if not base.exists():
-        log_event(audit_id, "Initialization", "Check Path", {"path": str(base)}, "exists(path)", {}, "FALSE", "", "Fail", "", 0, "ERROR", "Path not found")
-        return
-
-    if req.format == "yolo":
-        log_event(audit_id, "Parsing", "YOLO Dataset", {"path": str(base)}, "parse_yolo()", {}, "STARTED", "", "Parsing annotations", "", 0, "RUNNING")
-        images_dir = base / "images"
-        labels_dir = base / "labels"
-        if not images_dir.exists():
-            images_dir = base
-            labels_dir = base
+    set_task_state(audit_id, TaskState.RUNNING, stage="Initializing", detail="Starting dataset inspection.")
+    try:
+        base = safe_resolve(req.dataset_path, ROOT)
         
-        ds_result = inspect_yolo_dataset(images_dir, labels_dir, audit_id=audit_id)
-        records = ds_result["records"]
+        log_event(audit_id, "Dataset Audit", "Initialize", {"path": req.dataset_path, "format": req.format}, "init()", {}, "STARTED", "", "Audit Initialized", "", 0, "RUNNING")
         
-        for r in records:
-            p = Path(r["path"])
-            r["url_path"] = str(p.relative_to(ROOT)).replace('\\', '/')
-        with open(REPORTS_DIR / f"records_{audit_id}.json", "w", encoding="utf-8") as f:
-            json.dump(records, f)
-            
-        candidate_annotations = {r["filename"]: r.get("annotations", []) for r in records}
-        reference_annotations = None
-        if req.reference_dataset_path:
-            ref_base = safe_resolve(req.reference_dataset_path, ROOT)
-            if ref_base.exists():
-                ref_images_dir = ref_base / "images" if (ref_base / "images").exists() else ref_base
-                ref_labels_dir = ref_base / "labels" if (ref_base / "labels").exists() else ref_base
-                ref_result = inspect_yolo_dataset(ref_images_dir, ref_labels_dir)
-                reference_annotations = {r["filename"]: r.get("annotations", []) for r in ref_result.get("records", [])}
-
-        raw_findings: List[Dict[str, Any]] = [
-            check_duplicate_flooding(records, audit_id=audit_id),
-            check_label_flipping(candidate_annotations, reference_annotations),
-            check_trigger_patterns([Path(r["path"]) for r in records if Path(r["path"]).exists()], audit_id=audit_id),
-            check_data_poisoning(records, audit_id=audit_id),
-            check_ood_samples(records, audit_id=audit_id),
-        ]
-        findings = list(raw_findings)
-        
-        # Execute CleanVision adapter
-        from src.integrations.cleanvision_adapter import run_cleanvision_checks
-        log_event(audit_id, "Quality Checks", "CleanVision", {"images_dir": str(images_dir)}, "cleanvision.detect()", {}, "STARTED", "", "Running pixel anomaly detection", "", 0, "RUNNING")
-        cv_evidence = run_cleanvision_checks(str(images_dir), req.dataset_path)
-        for e in cv_evidence:
-            findings.append(e.to_dict())
-            
-        summary = {
-            "dataset_type": "YOLO",
-            "total_images": ds_result["total_images"],
-            "class_counts": ds_result["class_counts"],
-        }
-    elif req.format == "coco":
-        ann_path = base / "annotations.json"
-        if not ann_path.exists():
-            log_event(audit_id, "Initialization", "Check Path", {"path": str(ann_path)}, "exists(path)", {}, "FALSE", "", "Fail", "", 0, "ERROR", "annotations.json not found")
+        if not base.exists():
+            log_event(audit_id, "Initialization", "Check Path", {"path": str(base)}, "exists(path)", {}, "FALSE", "", "Fail", "", 0, "ERROR", "Path not found")
+            set_task_state(audit_id, TaskState.FAILED, stage="Initialization", error="Dataset path not found.")
             return
-        images_dir = base / "images"
-        if not images_dir.exists():
-            images_dir = base
+
+        if req.format == "yolo":
+            set_task_state(audit_id, TaskState.RUNNING, stage="Parsing YOLO", detail="Parsing annotations and images.")
+            log_event(audit_id, "Parsing", "YOLO Dataset", {"path": str(base)}, "parse_yolo()", {}, "STARTED", "", "Parsing annotations", "", 0, "RUNNING")
+            images_dir = base / "images"
+            labels_dir = base / "labels"
+            if not images_dir.exists():
+                images_dir = base
+                labels_dir = base
             
-        log_event(audit_id, "Parsing", "COCO Dataset", {"path": str(base)}, "parse_coco()", {}, "STARTED", "", "Parsing annotations", "", 0, "RUNNING")
-        ds_result = inspect_coco_dataset(ann_path, images_dir, audit_id=audit_id)
-        findings = [] 
-        records = ds_result["records"]
-        
-        if records:
+            ds_result = inspect_yolo_dataset(images_dir, labels_dir, audit_id=audit_id)
+            records = ds_result["records"]
+            
             for r in records:
                 p = Path(r["path"])
-                if p.exists():
-                    r["url_path"] = str(p.relative_to(ROOT)).replace('\\', '/')
+                r["url_path"] = str(p.relative_to(ROOT)).replace('\\', '/')
             with open(REPORTS_DIR / f"records_{audit_id}.json", "w", encoding="utf-8") as f:
                 json.dump(records, f)
                 
@@ -381,12 +431,14 @@ def run_dataset_audit_task(req: DatasetAuditRequest):
             reference_annotations = None
             if req.reference_dataset_path:
                 ref_base = safe_resolve(req.reference_dataset_path, ROOT)
-                ref_ann = ref_base / "annotations.json" if (ref_base / "annotations.json").exists() else ref_base
-                if ref_ann.exists() and ref_ann.is_file():
-                    ref_res = inspect_coco_dataset(ref_ann)
-                    reference_annotations = {r["filename"]: r.get("annotations", []) for r in ref_res.get("records", [])}
+                if ref_base.exists():
+                    ref_images_dir = ref_base / "images" if (ref_base / "images").exists() else ref_base
+                    ref_labels_dir = ref_base / "labels" if (ref_base / "labels").exists() else ref_base
+                    ref_result = inspect_yolo_dataset(ref_images_dir, ref_labels_dir)
+                    reference_annotations = {r["filename"]: r.get("annotations", []) for r in ref_result.get("records", [])}
 
-            raw_findings = [
+            set_task_state(audit_id, TaskState.RUNNING, stage="Security Checks", detail="Running statistical and cryptographic tests.")
+            raw_findings: List[Dict[str, Any]] = [
                 check_duplicate_flooding(records, audit_id=audit_id),
                 check_label_flipping(candidate_annotations, reference_annotations),
                 check_trigger_patterns([Path(r["path"]) for r in records if Path(r["path"]).exists()], audit_id=audit_id),
@@ -395,32 +447,94 @@ def run_dataset_audit_task(req: DatasetAuditRequest):
             ]
             findings = list(raw_findings)
             
-        from src.integrations.cleanvision_adapter import run_cleanvision_checks
-        log_event(audit_id, "Quality Checks", "CleanVision", {"images_dir": str(images_dir)}, "cleanvision.detect()", {}, "STARTED", "", "Running pixel anomaly detection", "", 0, "RUNNING")
-        cv_evidence = run_cleanvision_checks(str(images_dir), req.dataset_path)
-        for e in cv_evidence:
-            findings.append(e.to_dict())
+            # Execute CleanVision adapter
+            from src.integrations.cleanvision_adapter import run_cleanvision_checks
+            log_event(audit_id, "Quality Checks", "CleanVision", {"images_dir": str(images_dir)}, "cleanvision.detect()", {}, "STARTED", "", "Running pixel anomaly detection", "", 0, "RUNNING")
+            cv_evidence = run_cleanvision_checks(str(images_dir), req.dataset_path)
+            for e in cv_evidence:
+                findings.append(e.to_dict())
+                
+            summary = {
+                "dataset_type": "YOLO",
+                "total_images": ds_result["total_images"],
+                "class_counts": ds_result["class_counts"],
+            }
+        elif req.format == "coco":
+            ann_path = base / "annotations.json"
+            if not ann_path.exists():
+                log_event(audit_id, "Initialization", "Check Path", {"path": str(ann_path)}, "exists(path)", {}, "FALSE", "", "Fail", "", 0, "ERROR", "annotations.json not found")
+                set_task_state(audit_id, TaskState.FAILED, stage="Initialization", error="annotations.json not found.")
+                return
+            images_dir = base / "images"
+            if not images_dir.exists():
+                images_dir = base
+                
+            set_task_state(audit_id, TaskState.RUNNING, stage="Parsing COCO", detail="Parsing annotations and images.")
+            log_event(audit_id, "Parsing", "COCO Dataset", {"path": str(base)}, "parse_coco()", {}, "STARTED", "", "Parsing annotations", "", 0, "RUNNING")
+            ds_result = inspect_coco_dataset(ann_path, images_dir, audit_id=audit_id)
+            findings = [] 
+            records = ds_result["records"]
+            
+            if records:
+                for r in records:
+                    p = Path(r["path"])
+                    if p.exists():
+                        r["url_path"] = str(p.relative_to(ROOT)).replace('\\', '/')
+                with open(REPORTS_DIR / f"records_{audit_id}.json", "w", encoding="utf-8") as f:
+                    json.dump(records, f)
+                    
+                candidate_annotations = {r["filename"]: r.get("annotations", []) for r in records}
+                reference_annotations = None
+                if req.reference_dataset_path:
+                    ref_base = safe_resolve(req.reference_dataset_path, ROOT)
+                    ref_ann = ref_base / "annotations.json" if (ref_base / "annotations.json").exists() else ref_base
+                    if ref_ann.exists() and ref_ann.is_file():
+                        ref_res = inspect_coco_dataset(ref_ann)
+                        reference_annotations = {r["filename"]: r.get("annotations", []) for r in ref_res.get("records", [])}
 
-        summary = {
-            "dataset_type": "COCO",
-            "total_images": ds_result["total_images"],
-            "total_annotations": ds_result.get("total_annotations", 0),
-            "class_counts": ds_result["class_counts"],
-        }
-    else:
-        log_event(audit_id, "Initialization", "Check Format", {"format": req.format}, "valid_format()", {}, "FALSE", "", "Fail", "", 0, "ERROR", "Unknown format")
-        return
+                set_task_state(audit_id, TaskState.RUNNING, stage="Security Checks", detail="Running statistical and cryptographic tests.")
+                raw_findings = [
+                    check_duplicate_flooding(records, audit_id=audit_id),
+                    check_label_flipping(candidate_annotations, reference_annotations),
+                    check_trigger_patterns([Path(r["path"]) for r in records if Path(r["path"]).exists()], audit_id=audit_id),
+                    check_data_poisoning(records, audit_id=audit_id),
+                    check_ood_samples(records, audit_id=audit_id),
+                ]
+                findings = list(raw_findings)
+                
+            from src.integrations.cleanvision_adapter import run_cleanvision_checks
+            log_event(audit_id, "Quality Checks", "CleanVision", {"images_dir": str(images_dir)}, "cleanvision.detect()", {}, "STARTED", "", "Running pixel anomaly detection", "", 0, "RUNNING")
+            cv_evidence = run_cleanvision_checks(str(images_dir), req.dataset_path)
+            for e in cv_evidence:
+                findings.append(e.to_dict())
 
-    report = generate_report(
-        dataset_findings=findings,
-        dataset_summary=summary,
-        audit_seed=req.seed,
-        target_name=req.dataset_path,
-    )
-    report["records"] = records
-    save_report(report, REPORTS_DIR / f"dataset_{audit_id}.json")
-    
-    log_event(audit_id, "Finalization", "Report Generation", {"report_id": report["report_id"]}, "generate_report()", {}, "COMPLETED", "", "Success", report["report_id"], 0, "PASS")
+            summary = {
+                "dataset_type": "COCO",
+                "total_images": ds_result["total_images"],
+                "total_annotations": ds_result.get("total_annotations", 0),
+                "class_counts": ds_result["class_counts"],
+            }
+        else:
+            log_event(audit_id, "Initialization", "Check Format", {"format": req.format}, "valid_format()", {}, "FALSE", "", "Fail", "", 0, "ERROR", "Unknown format")
+            set_task_state(audit_id, TaskState.FAILED, stage="Initialization", error=f"Unknown format: {req.format}")
+            return
+
+        set_task_state(audit_id, TaskState.RUNNING, stage="Finalizing Report", detail="Compiling forensic findings and verdicts.")
+        report = generate_report(
+            dataset_findings=findings,
+            dataset_summary=summary,
+            audit_seed=req.seed,
+            target_name=req.dataset_path,
+        )
+        report["records"] = records
+        save_report(report, REPORTS_DIR / f"dataset_{audit_id}.json")
+        
+        log_event(audit_id, "Finalization", "Report Generation", {"report_id": report["report_id"]}, "generate_report()", {}, "COMPLETED", "", "Success", report["report_id"], 0, "PASS")
+        set_task_state(audit_id, TaskState.COMPLETED, stage="Completed", detail=f"Report {report['report_id'][:8]} generated successfully.")
+    except Exception as exc:
+        logger.exception(f"Unhandled exception in audit task {audit_id}")
+        set_task_state(audit_id, TaskState.FAILED, stage="Error", error=str(exc))
+        raise
 
 # ---------------------------------------------------------------------------
 # Model audit
@@ -619,7 +733,7 @@ def audit_full(req: FullAuditRequest):
             mdl_summary = {"filename": record["filename"], "sha256": record["sha256"]}
 
     if req.inference_log:
-        lp = ROOT / req.inference_log
+        lp = safe_resolve(req.inference_log, ROOT)
         if lp.exists():
             records_inf = load_inference_log(lp)
             for rec in records_inf:

@@ -3,6 +3,7 @@ import json
 import os
 import time
 import hashlib
+import hmac
 from typing import Dict, Any, List
 from pathlib import Path
 
@@ -188,3 +189,95 @@ def get_events(audit_id: str) -> List[Dict[str, Any]]:
             "event_hash":       raw["event_hash"],
         })
     return events
+
+def verify_audit_chain(audit_id: str) -> Dict[str, Any]:
+    """
+    Verify the cryptographic hash chain and sequence monotonicity of audit events
+    for a given audit_id in SQLite.
+    
+    Reconstructs each canonical payload, incorporates the preceding event hash,
+    and flags any sequence gaps, modifications, or chain ruptures.
+    """
+    db_path = get_db_path()
+    if not db_path.exists():
+        return {
+            "is_valid": False,
+            "audit_id": audit_id,
+            "total_events": 0,
+            "anomalies": ["Database file not found."],
+            "last_hash": ""
+        }
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT * FROM audit_events WHERE audit_id = ? ORDER BY sequence_number ASC
+    ''', (audit_id,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return {
+            "is_valid": False,
+            "status": "NO_EVENTS_FOUND",
+            "audit_id": audit_id,
+            "total_events": 0,
+            "anomalies": [f"No audit events found for audit_id: '{audit_id}'. Empty or nonexistent audits cannot be verified as valid."],
+            "last_hash": ""
+        }
+
+    anomalies: List[str] = []
+    last_hash = "0000000000000000000000000000000000000000000000000000000000000000"
+    expected_seq = 1
+
+    for row in rows:
+        seq = row["sequence_number"]
+        if seq != expected_seq:
+            anomalies.append(
+                f"Sequence gap or reordering at event id {row['id']}: expected sequence {expected_seq}, found {seq}"
+            )
+
+        event_payload = {
+            "audit_id": row["audit_id"],
+            "sequence_number": row["sequence_number"],
+            "timestamp_utc": row["timestamp_utc"],
+            "stage": row["stage"],
+            "operation": row["operation"],
+            "inputs": row["inputs"],
+            "formula": row["formula"],
+            "intermediate_values": row["intermediate_values"],
+            "result": row["result"],
+            "thresholds": row["thresholds"],
+            "decision": row["decision"],
+            "evidence_id": row["evidence_id"],
+            "duration_ms": row["duration_ms"],
+            "status": row["status"],
+            "error_details": row["error_details"],
+        }
+
+        canonical = _canonicalize_event(event_payload)
+        combined = canonical + last_hash.encode('utf-8')
+        computed_hash = hashlib.sha256(combined).hexdigest()
+        stored_hash = row["event_hash"]
+
+        if not hmac.compare_digest(computed_hash, stored_hash):
+            anomalies.append(
+                f"Hash mismatch at sequence {seq} (event id {row['id']}): computed {computed_hash}, stored {stored_hash}"
+            )
+
+        # In a broken chain, the stored hash was chained into the next record
+        last_hash = stored_hash
+        expected_seq += 1
+
+    is_valid = len(anomalies) == 0 and len(rows) > 0
+    status_str = "VALID" if is_valid else "CORRUPTED_OR_TAMPERED"
+
+    return {
+        "is_valid": is_valid,
+        "status": status_str,
+        "audit_id": audit_id,
+        "total_events": len(rows),
+        "anomalies": anomalies,
+        "last_hash": last_hash
+    }
