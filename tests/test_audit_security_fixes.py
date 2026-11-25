@@ -273,13 +273,12 @@ class TestVerdictCorrectness:
 
 class TestInferenceProvenanceChain:
     @pytest.fixture(autouse=True)
-    def isolated_db(self, tmp_path):
+    def isolated_db(self, tmp_path, monkeypatch):
         db_path = tmp_path / "prov_test.db"
-        os.environ["TRUSTTRACE_PROVENANCE_DB"] = str(db_path)
+        monkeypatch.setenv("TRUSTTRACE_PROVENANCE_DB", str(db_path))
+        monkeypatch.setenv("TRUSTTRACE_CV_HMAC_SECRET", TEST_KEY.decode("utf-8"))
         init_db()
         yield db_path
-        if "TRUSTTRACE_PROVENANCE_DB" in os.environ:
-            del os.environ["TRUSTTRACE_PROVENANCE_DB"]
 
     def test_valid_chain_passes_verification(self, isolated_db):
         last_hash = ""

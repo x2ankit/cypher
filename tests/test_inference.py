@@ -95,12 +95,11 @@ class TestVerifyInferenceRecord:
 
 class TestReplayDetection:
     @pytest.fixture(autouse=True)
-    def setup_db(self, tmp_path):
+    def setup_db(self, tmp_path, monkeypatch):
         db_path = tmp_path / "test_prov.db"
-        os.environ["TRUSTTRACE_PROVENANCE_DB"] = str(db_path)
+        monkeypatch.setenv("TRUSTTRACE_PROVENANCE_DB", str(db_path))
+        monkeypatch.setenv("TRUSTTRACE_CV_HMAC_SECRET", _SECRET.decode("utf-8"))
         yield
-        if "TRUSTTRACE_PROVENANCE_DB" in os.environ:
-            del os.environ["TRUSTTRACE_PROVENANCE_DB"]
 
     def test_first_record_no_replay(self):
         rec = record_inference("img1", "mdl", [], secret=_SECRET)

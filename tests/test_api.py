@@ -14,12 +14,12 @@ FIXTURES_DIR = Path("data/fixtures")
 FIXTURE_A_ZIP = Path("data/fixtureA.zip")
 
 @pytest.fixture(autouse=True)
-def setup_db(tmp_path):
+def setup_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test_prov.db"
-    os.environ["TRUSTTRACE_PROVENANCE_DB"] = str(db_path)
+    audit_path = tmp_path / "test_audit.sqlite"
+    monkeypatch.setenv("TRUSTTRACE_PROVENANCE_DB", str(db_path))
+    monkeypatch.setenv("TRUSTTRACE_AUDIT_DB", str(audit_path))
     yield
-    if "TRUSTTRACE_PROVENANCE_DB" in os.environ:
-        del os.environ["TRUSTTRACE_PROVENANCE_DB"]
 
 def test_health():
     response = client.get("/api/health")

@@ -1,16 +1,29 @@
-# TrustTrace CV – Requirements
-# Python 3.12
-# Pinned on 2026-10-01
+# TrustTrace CV — Core Requirements
+# Compatible with Python 3.10, 3.11, 3.12 (Linux, macOS, Windows)
 
-# Web framework
-fastapi==0.115.5
-uvicorn[standard]==0.32.0
+# Web Framework & API Gateway
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+python-multipart>=0.0.9
 
-# ML / Inference
-onnxruntime==1.20.1
+# Machine Learning & Numerical Computing
+torch>=2.0.0
+numpy>=1.24.0
+pillow>=10.0.0
+scipy>=1.10.0
+scikit-learn>=1.2.0
+onnxruntime>=1.17.0
+onnx>=1.15.0
+pyyaml>=6.0
 
-# Core already in mldl: torch, torchvision, numpy, pillow, scipy, scikit-learn, matplotlib, pandas, rich, PyYAML, click, tqdm
+# Cryptography & Integrity
+cryptography>=41.0.0
 
-# Testing
-pytest==8.3.3
-pytest-cov==5.0.0
+# CLI & Terminal Formatting
+typer>=0.9.0
+rich>=13.0.0
+
+# Testing & Benchmarking
+pytest>=8.0.0
+pytest-cov>=4.1.0
+pytest-json-report>=1.5.0
