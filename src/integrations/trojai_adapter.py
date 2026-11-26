@@ -31,7 +31,7 @@ def run_trojai_validation(model_path: str, trojai_metadata: str) -> List[Evidenc
         evidence_list.append(evidence)
         return evidence_list
         
-    # If artifacts exist, we would parse the metadata and run TRUSTTRACE behavioral tests
+    # If artifacts exist, we would parse the metadata and run CYPHER behavioral tests
     # against it to calculate TP, TN, FP, FN. 
     # Not implemented for missing artifacts case.
     

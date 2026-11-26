@@ -1,11 +1,11 @@
 # Architecture
 
-TRUSTTRACE CV is designed as an offline-first, modular Python application. The architecture prioritizes separation of concerns, ensuring that dataset inspection, model integrity validation, model performance evaluation, and inference provenance are handled by independent sub-modules that feed into a unified reporting pipeline.
+CYPHER is designed as an offline-first, modular Python application. The architecture prioritizes separation of concerns, ensuring that dataset inspection, model integrity validation, model performance evaluation, and inference provenance are handled by independent sub-modules that feed into a unified reporting pipeline.
 
 ## System Components
 
 ```
-TRUSTTRACE CV
+CYPHER
 ├── src/
 │   ├── dataset/          # Dataset integrity and label quality checks (COCO, YOLO)
 │   │   ├── inspector.py

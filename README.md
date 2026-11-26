@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🛡️ TrustTrace CV
+# 🛡️ CYPHER
 
 ### Deep Learning Integrity, Cryptographic Provenance & Adversarial Assurance Toolkit for Computer Vision Pipelines
 
@@ -27,9 +27,9 @@
 
 <br/>
 
-<img src="assets/ui.png" alt="TrustTrace CV Dashboard" width="850" style="border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); border: 1px solid #e1e4e8;" />
+<img src="assets/ui.png" alt="CYPHER Dashboard" width="850" style="border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); border: 1px solid #e1e4e8;" />
 
-*The TrustTrace CV interactive dashboard: Real-time mathematical audit traces, cryptographic verification, and offline forensic report generation.*
+*The CYPHER interactive dashboard: Real-time mathematical audit traces, cryptographic verification, and offline forensic report generation.*
 
 </div>
 
@@ -39,9 +39,9 @@
 
 ## 📖 Overview
 
-**TrustTrace CV** is an offline-first, model-agnostic assurance and cryptographic provenance toolkit designed specifically for Computer Vision (CV) pipelines. Modern computer vision systems deployed in safety-critical domains are vulnerable to **data poisoning**, **Trojan backdoor insertion**, **model substitution**, and **silent inference log manipulation**.
+**CYPHER** is an offline-first, model-agnostic assurance and cryptographic provenance toolkit designed specifically for Computer Vision (CV) pipelines. Modern computer vision systems deployed in safety-critical domains are vulnerable to **data poisoning**, **Trojan backdoor insertion**, **model substitution**, and **silent inference log manipulation**.
 
-TrustTrace CV provides verifiable cryptographic integrity checking and statistical anomaly heuristics across three core stages of the computer vision lifecycle:
+CYPHER provides verifiable cryptographic integrity checking and statistical anomaly heuristics across three core stages of the computer vision lifecycle:
 * **Dataset Integrity**: Detecting exact byte flooding, perceptual near-duplicates (dHash), label and bounding box perturbations (Hungarian IoU matching), localized solid backdoor triggers (sliding Shannon patch entropy), and reference-calibrated distribution shifts (MAD and Mahalanobis distance).
 * **Model Integrity**: Verifying model artifact digests against signed cryptographic manifests (HMAC-SHA256 or RSA-2048) and safely inspecting model architectures without arbitrary unpickling (`weights_only=True`).
 * **Inference Provenance**: Signing prediction telemetry with HMAC-SHA256, strictly monotonic sequence counters, and anti-replay nonces stored in a tamper-evident SQLite forward hash chain.
@@ -84,7 +84,7 @@ TrustTrace CV provides verifiable cryptographic integrity checking and statistic
 
 ## ⚖️ How It Compares
 
-| Capability | TrustTrace CV | Deepchecks (Vision) | CleanVision | IBM ART | Sigstore / Cosign |
+| Capability | CYPHER | Deepchecks (Vision) | CleanVision | IBM ART | Sigstore / Cosign |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Primary Scope** | **Cryptographic Provenance & Statistical CV Integrity** | ML Validation & Testing | Visual Data Quality | Adversarial Attacks & Robustness | Container / Artifact Signing |
 | **Cryptographic Provenance** | ✅ **Native (HMAC + RSA forward hash chain)** | ❌ None | ❌ None | ❌ None | ✅ Signature only |
@@ -100,7 +100,7 @@ TrustTrace CV provides verifiable cryptographic integrity checking and statistic
 
 ## 🏗️ System Architecture
 
-TrustTrace CV enforces an end-to-end pipeline verifying assets at every phase of the vision lifecycle:
+CYPHER enforces an end-to-end pipeline verifying assets at every phase of the vision lifecycle:
 
 ```mermaid
 flowchart TD
@@ -110,7 +110,7 @@ flowchart TD
         A3["Inference Stream (.jsonl)"]
     end
 
-    subgraph ENGINE["2. TrustTrace Core Assurance Engine"]
+    subgraph ENGINE["2. CYPHER Core Assurance Engine"]
         B1["Dataset Inspector & Schema Parser"]
         B2["Security Heuristics Suite"]
         B3["Safe Model Loader (weights_only=True)"]
@@ -154,7 +154,7 @@ flowchart TD
 
 ## 🔬 Empirical Benchmarks & Scientific Validation
 
-TrustTrace CV enforces zero experimental leakage: thresholds are selected strictly on a dedicated **Calibration Split** (25 synthetic images) and evaluated on an independent **Evaluation Benchmark Split** (130 evaluation samples, 30 clean reference baselines).
+CYPHER enforces zero experimental leakage: thresholds are selected strictly on a dedicated **Calibration Split** (25 synthetic images) and evaluated on an independent **Evaluation Benchmark Split** (130 evaluation samples, 30 clean reference baselines).
 
 The table below reflects empirical metrics measured directly from our reproducible test harness (`scripts/run_benchmark.py`), with results saved to `reports/benchmark_results.json`:
 
@@ -231,8 +231,8 @@ Clone the repository and install dependencies in an isolated virtual environment
 
 ```bash
 # Clone repository
-git clone https://github.com/x2ankit/trusttracecv.git
-cd trusttracecv
+git clone https://github.com/x2ankit/cypher.git
+cd cypher
 
 # Create and activate virtual environment (venv or conda)
 python -m venv .venv
@@ -245,7 +245,7 @@ pip install -r requirements.txt
 
 ### 2. Configure Cryptographic Environment
 
-TrustTrace CV enforces zero hardcoded secrets. Copy the environment template and set secure keys:
+CYPHER enforces zero hardcoded secrets. Copy the environment template and set secure keys:
 
 ```bash
 cp .env.example .env
@@ -259,20 +259,22 @@ python -c "import secrets; print(secrets.token_hex(32))"
 Edit `.env` to configure your keys and storage paths:
 ```ini
 # Cryptographic Keys (Required for HMAC operations)
-TRUSTTRACE_CV_HMAC_SECRET="replace_with_a_secure_random_hmac_key_for_inference"
-TRUSTTRACE_CV_MANIFEST_SECRET="replace_with_a_secure_random_manifest_hmac_key"
+CYPHER_HMAC_SECRET="replace_with_a_secure_random_hmac_key_for_inference"
+CYPHER_MANIFEST_SECRET="replace_with_a_secure_random_manifest_hmac_key"
 
 # Optional: Path to RSA keys for asymmetric manifest signing and verification
-TRUSTTRACE_PRIVATE_KEY_PATH="./private_key.pem"
-TRUSTTRACE_PUBLIC_KEY_PATH="./public_key.pem"
+CYPHER_PRIVATE_KEY_PATH="./private_key.pem"
+CYPHER_PUBLIC_KEY_PATH="./public_key.pem"
 
 # Storage Paths (Configurable SQLite ledgers)
-TRUSTTRACE_AUDIT_DB="./audit_events.sqlite"
-TRUSTTRACE_PROVENANCE_DB="./data/provenance.db"
+CYPHER_AUDIT_DB="./audit_events.sqlite"
+CYPHER_PROVENANCE_DB="./data/provenance.db"
 
 # API Configuration
 PORT=8000
 HOST="127.0.0.1"
+
+# Legacy environment variables (TRUSTTRACE_*) remain supported as fallbacks.
 ```
 
 To generate an RSA-2048 keypair for asymmetric manifest signing:
@@ -353,9 +355,9 @@ from src.models.integrity import (
 
 # Load secret from environment (or supply high-entropy key)
 # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
-signing_secret = os.environ.get("TRUSTTRACE_CV_MANIFEST_SECRET", "").encode("utf-8")
+signing_secret = os.environ.get("CYPHER_MANIFEST_SECRET", "").encode("utf-8")
 if not signing_secret:
-    raise ValueError("Set TRUSTTRACE_CV_MANIFEST_SECRET before signing model manifests.")
+    raise ValueError("Set CYPHER_MANIFEST_SECRET before signing model manifests.")
 
 model_path = Path("models/fixtures/dummy_detector.pt")
 manifest_path = Path("models/fixtures/manifest.json")
@@ -383,9 +385,9 @@ from src.inference.verifier import record_inference, verify_inference_record
 from src.inference.provenance import record_inference_event, verify_provenance_chain
 
 # Load HMAC signing secret from environment
-secret_key = os.environ.get("TRUSTTRACE_CV_HMAC_SECRET", "").encode("utf-8")
+secret_key = os.environ.get("CYPHER_HMAC_SECRET", "").encode("utf-8")
 if not secret_key:
-    raise ValueError("Set TRUSTTRACE_CV_HMAC_SECRET before signing inference records.")
+    raise ValueError("Set CYPHER_HMAC_SECRET before signing inference records.")
 
 # 1. Sign inference output with HMAC-SHA256 and anti-replay nonce
 record = record_inference(
@@ -412,7 +414,7 @@ print(f"Provenance ledger status: valid={is_valid} ({msg})")
 
 ## ⌨️ Command-Line Interface (CLI)
 
-TrustTrace CV provides a rich, colorized CLI powered by Typer and Rich:
+CYPHER provides a rich, colorized CLI powered by Typer and Rich:
 
 ```bash
 # Audit a YOLO or COCO dataset
@@ -454,7 +456,7 @@ python -m src.cli audit-all --dataset-dir data/fixtures/clean --model-path model
 ## 📂 Project Structure
 
 ```
-trusttracecv/
+cypher/
 ├── assets/                     # Visual assets and UI previews
 │   ├── ui.png
 │   └── ui_screenshot.jpg
@@ -469,7 +471,7 @@ trusttracecv/
 │   ├── generate_benchmark.py   # Benchmark split generator (clean, duplicates, triggers, OOD)
 │   ├── generate_fixtures.py    # Deterministic test fixture generator
 │   └── run_benchmark.py        # Statistical evaluation and latency benchmark runner
-├── src/                        # Core TrustTrace CV library
+├── src/                        # Core CYPHER library
 │   ├── api/                    # FastAPI backend & SQLite audit DB
 │   │   ├── app.py              # REST API routes and task state manager
 │   │   └── audit_db.py         # Audit event logger and hash chain verifier
@@ -540,7 +542,7 @@ trusttracecv/
 
 ## 🔒 Threat Model & Security Boundaries
 
-TrustTrace CV addresses specific adversarial threats across the ML pipeline:
+CYPHER addresses specific adversarial threats across the ML pipeline:
 
 | Subsystem | Defended Threats | Out of Scope / Explicit Limitations |
 | :--- | :--- | :--- |
@@ -553,7 +555,7 @@ TrustTrace CV addresses specific adversarial threats across the ML pipeline:
 
 ## 🧪 Testing & Quality Assurance
 
-TrustTrace CV enforces test-driven quality assurance. The entire suite runs 100% offline using synthetic mathematical fixtures:
+CYPHER enforces test-driven quality assurance. The entire suite runs 100% offline using synthetic mathematical fixtures:
 
 ```bash
 # Execute the full pytest suite
@@ -566,7 +568,7 @@ pytest --cov=src tests/
 ```
 ================================ test session starts =================================
 platform win32 -- Python 3.12.14, pytest-8.3.3
-rootdir: trusttracecv
+rootdir: cypher
 collected 171 items
 
 tests/test_api.py .........................                                    [ 15%]
@@ -597,15 +599,15 @@ For complete architectural specifications, threat analyses, and development guid
 
 ## 📄 License & Citation
 
-TrustTrace CV is released under the **[MIT License](LICENSE)**.
+CYPHER is released under the **[MIT License](LICENSE)**.
 
 ```bibtex
-@software{trusttracecv2026,
+@software{cypher2026,
   author = {Ankit Tripathy and Contributors},
-  title = {TrustTrace CV: Deep Learning Integrity, Cryptographic Provenance & Adversarial Assurance Toolkit for Computer Vision Pipelines},
+  title = {CYPHER: Deep Learning Integrity, Cryptographic Provenance & Adversarial Assurance Toolkit for Computer Vision Pipelines},
   year = {2026},
   publisher = {GitHub},
-  url = {https://github.com/x2ankit/trusttracecv}
+  url = {https://github.com/x2ankit/cypher}
 }
 ```
 

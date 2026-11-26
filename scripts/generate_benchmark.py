@@ -23,6 +23,7 @@ import json
 import random
 import hashlib
 from pathlib import Path
+from typing import Optional, Tuple, Dict, Any, List
 from typing import Dict, List, Tuple, Any
 
 import numpy as np
@@ -40,7 +41,7 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 def make_synthetic_image(rng: random.Random, width: int = 100, height: int = 100,
-                         base_color: Tuple[int, int, int] = None, noise_sigma: float = 25.0) -> Image.Image:
+                         base_color: Optional[Tuple[int, int, int]] = None, noise_sigma: float = 25.0) -> Image.Image:
     """Generate high-entropy synthetic base image with structured shapes."""
     if base_color is None:
         base_color = (rng.randint(60, 190), rng.randint(60, 190), rng.randint(60, 190))
@@ -660,7 +661,7 @@ def generate_evaluation_split(seed: int = 2042) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print("=== Generating TRUSTTRACE CV Controlled Benchmark ===")
+    print("=== Generating CYPHER Controlled Benchmark ===")
     generate_reference_split(seed=42, count=30)
     generate_calibration_split(seed=1042)
     generate_evaluation_split(seed=2042)

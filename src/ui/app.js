@@ -86,7 +86,7 @@ safeOn('drawer-overlay', 'click', closeDrawer);
 safeOn('ds-file-input', 'change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  console.log('[TRUSTTRACE] File selected:', file.name, file.size, 'bytes');
+  console.log('[CYPHER] File selected:', file.name, file.size, 'bytes');
 
   const statusEl  = document.getElementById('ds-meta-filename');
   const wrapEl    = document.getElementById('ds-upload-progress-wrap');
@@ -146,7 +146,7 @@ safeOn('ds-file-input', 'change', (e) => {
 
       const runBtn = document.getElementById('btn-start-audit');
       if (runBtn) { runBtn.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.5)'; }
-      console.log('[TRUSTTRACE] Upload OK →', data.dataset_path);
+      console.log('[CYPHER] Upload OK →', data.dataset_path);
     } else {
       let msg = `HTTP ${xhr.status}`;
       try { msg = JSON.parse(xhr.responseText).detail || msg; } catch(e2) {}
@@ -313,14 +313,14 @@ safeOn('btn-start-audit', 'click', async () => {
                              findings: latest.findings || [],
                              final_status: (latest.findings || []).length > 0 ? "ISSUES DETECTED" : "PASS",
                              limitations: "This audit is based on static and heuristic analysis. It does not replace dynamic manual verification.",
-                             software_configuration: { version: "1.0.0", engine: "TrustTrace CV" }
+                             software_configuration: { version: "1.0.0", engine: "CYPHER" }
                          };
                          
                          const blob = new Blob([JSON.stringify(fullRecord, null, 2)], { type: 'application/json' });
                          const url = URL.createObjectURL(blob);
                          const a = document.createElement('a');
                          a.href = url;
-                         a.download = `trusttrace_audit_${auditId}.json`;
+                         a.download = `cypher_audit_${auditId}.json`;
                          document.body.appendChild(a);
                          a.click();
                          document.body.removeChild(a);
@@ -336,7 +336,7 @@ safeOn('btn-start-audit', 'click', async () => {
     document.getElementById('btn-export-json').onclick = () => {
         const a = document.createElement('a');
         a.href = `${API_BASE}/api/reports/html/${auditId}`;
-        a.download = `trusttrace_audit_${auditId}.html`;
+        a.download = `cypher_audit_${auditId}.html`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -348,7 +348,7 @@ safeOn('btn-start-audit', 'click', async () => {
         const blob = new Blob([evs.events.map(e => JSON.stringify(e)).join('\\n')], { type: 'application/x-ndjson' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `trusttrace_audit_${auditId}.jsonl`;
+        a.download = `cypher_audit_${auditId}.jsonl`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

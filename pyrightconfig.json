@@ -1,0 +1,9 @@
+{
+  "venvPath": "C:\\Users\\Ankit\\miniconda3\\envs",
+  "venv": "mldl",
+  "pythonVersion": "3.12",
+  "extraPaths": [
+    "."
+  ],
+  "reportMissingImports": "none"
+}

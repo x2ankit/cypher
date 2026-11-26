@@ -53,6 +53,7 @@ def test_dataset_upload_and_audit():
     max_wait = 60  # seconds
     start = time.time()
     completed = False
+    events = []
     while time.time() - start < max_wait:
         ev_resp = client.get(f"/api/audit/events/{audit_id}")
         assert ev_resp.status_code == 200

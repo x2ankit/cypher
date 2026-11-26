@@ -1,0 +1,9 @@
+detector_key,detector,metric_scope,precision,recall,f1,fpr,fnr,auroc,aupr,latency_ms,peak_memory_kb,description
+duplicate_exact_sha256,Duplicate Exact Sha256,exact_duplicates_only,0.5,1.0,0.6667,0.1111,0.0,,,0.23,13.55,Baseline exact byte SHA-256 duplicate detection
+duplicate_perceptual_dhash,Duplicate Perceptual Dhash,binary_metrics,0.5625,0.9,0.6923,0.4667,0.1,0.7417,0.5779,112.91,126.75,"Perceptual difference hashing (dHash, max Hamming dist 8)"
+label_integrity_hungarian,Label Integrity Hungarian,image_level_metrics,1.0,1.0,1.0,0.0,0.0,,,21.07,26.67,Optimal bipartite matching (Hungarian IoU) for label integrity
+trigger_patch_entropy,Trigger Patch Entropy,binary_metrics,1.0,0.4,0.5714,0.0,0.6,0.87,0.8635,286.91,318.18,"Sliding window Shannon patch entropy (16x16 window, threshold < 1.0)"
+poisoning_self_referenced_zscore,Poisoning Self Referenced Zscore,binary_metrics,0.0,0.0,0.0,0.0,1.0,1.0,1.0,1.97,31.7,Baseline self-referenced RGB Z-score outlier detection
+poisoning_reference_calibrated_mad,Poisoning Reference Calibrated Mad,binary_metrics,0.7143,1.0,0.8333,0.2667,0.0,0.9867,0.9767,6.6,74.63,Improved reference-calibrated robust Modified Z-score (Median/MAD)
+ood_self_referenced_mahalanobis,Ood Self Referenced Mahalanobis,binary_metrics,1.0,0.2667,0.4211,0.0,0.7333,0.6,0.7203,3.31,22.83,Baseline self-referenced channel Mahalanobis distance
+ood_reference_calibrated_mahalanobis,Ood Reference Calibrated Mahalanobis,binary_metrics,0.6923,0.6,0.6429,0.1333,0.4,0.7956,0.7829,3.52,23.24,Improved reference-calibrated Mahalanobis distance

@@ -1,4 +1,4 @@
-# TrustTrace CV — Core Requirements
+# CYPHER — Core Requirements
 # Compatible with Python 3.10, 3.11, 3.12 (Linux, macOS, Windows)
 
 # Web Framework & API Gateway

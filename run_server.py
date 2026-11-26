@@ -1,7 +1,7 @@
 """
 run_server.py
 
-Start the TRUSTTRACE CV FastAPI server.
+Start the CYPHER FastAPI server.
 
 Usage:
   python run_server.py [--host HOST] [--port PORT] [--reload]

@@ -47,6 +47,7 @@ class TestBboxAndIoU:
         # Explicit center keys format -> converts to (x1, y1, x2, y2)
         ann_keys = {"x_center": 0.4, "y_center": 0.4, "width": 0.2, "height": 0.2}
         extracted = _extract_bbox(ann_keys)
+        assert extracted is not None
         assert pytest.approx(extracted[0]) == 0.3
         assert pytest.approx(extracted[1]) == 0.3
         assert pytest.approx(extracted[2]) == 0.5

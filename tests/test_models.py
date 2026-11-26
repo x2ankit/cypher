@@ -51,7 +51,7 @@ def _write_dummy_pt(path: Path) -> Path:
 class TestSha256:
     def test_deterministic(self, tmp_path):
         p = tmp_path / "file.bin"
-        p.write_bytes(b"hello trusttrace")
+        p.write_bytes(b"hello cypher")
         assert sha256_file(p) == sha256_file(p)
 
     def test_different_content_different_hash(self, tmp_path):

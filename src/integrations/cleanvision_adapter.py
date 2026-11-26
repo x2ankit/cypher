@@ -13,13 +13,13 @@ def run_cleanvision_checks(dataset_path: str, dataset_id: str) -> List[Evidence]
     evidence_list = []
     
     try:
-        from cleanvision.imagelab import Imagelab
+        from cleanvision.imagelab import Imagelab  # type: ignore
         # Imagelab execution
         imagelab = Imagelab(data_path=dataset_path)
         imagelab.find_issues()
         issues = imagelab.issues
         
-        # We need to map CleanVision issues to TRUSTTRACE Evidence
+        # We need to map CleanVision issues to CYPHER Evidence
         for issue_type, issue_data in issues.items():
             # In CleanVision, 'issues' usually contains a dataframe or dict of flagged images
             # This is a simplified mapping logic based on CleanVision's typical output

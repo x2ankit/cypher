@@ -1,7 +1,7 @@
 """
 scripts/run_benchmark.py
 
-Rigorous Scientific Benchmark Runner for TRUSTTRACE CV Dataset Assurance Subsystem.
+Rigorous Scientific Benchmark Runner for CYPHER Dataset Assurance Subsystem.
 Measures detection validity, statistical power, execution latency, and peak memory.
 
 Key Protocols Enforced:
@@ -72,7 +72,7 @@ def compute_binary_metrics(y_true: List[int], y_pred: List[int]) -> Dict[str, fl
         "fnr": round(float(fnr), 4),
     }
 
-def compute_continuous_metrics(y_true: List[int], scores: List[float]) -> Dict[str, float]:
+def compute_continuous_metrics(y_true: List[int], scores: List[float]) -> Dict[str, Optional[float]]:
     """Compute AUROC and AUPR."""
     y_t = np.array(y_true, dtype=int)
     s = np.array(scores, dtype=float)
@@ -520,7 +520,7 @@ def run_evaluation(eval_dir: Path, ref_dir: Path, config: Dict[str, Any]) -> Dic
 
 def print_markdown_summary(report: Dict[str, Any]):
     print("\n" + "=" * 80)
-    print("TRUSTTRACE CV — EMPIRICAL BENCHMARK RESULTS")
+    print("CYPHER — EMPIRICAL BENCHMARK RESULTS")
     print("=" * 80)
     
     detectors = report["detector_benchmarks"]

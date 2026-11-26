@@ -8,8 +8,8 @@ from typing import Dict, Any, List
 from pathlib import Path
 
 def get_db_path() -> Path:
-    """Return the audit events DB path, configurable via TRUSTTRACE_AUDIT_DB env var."""
-    return Path(os.environ.get("TRUSTTRACE_AUDIT_DB", "audit_events.sqlite"))
+    """Return the audit events DB path, configurable via CYPHER_AUDIT_DB (fallback to legacy TRUSTTRACE_AUDIT_DB)."""
+    return Path(os.environ.get("CYPHER_AUDIT_DB") or os.environ.get("TRUSTTRACE_AUDIT_DB", "audit_events.sqlite"))
 
 # Module-level alias for backwards compatibility (resolved at import time)
 DB_PATH = get_db_path()

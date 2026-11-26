@@ -13,7 +13,7 @@ def run_cleanlab_object_detection(dataset_id: str, labels: Any, predictions: Any
     evidence_list = []
     
     try:
-        from cleanlab.object_detection.filter import find_label_issues
+        from cleanlab.object_detection.filter import find_label_issues  # type: ignore
         
         # In a real setup, labels and predictions need to be formatted correctly for cleanlab.
         # find_label_issues(labels=labels, predictions=predictions)

@@ -23,7 +23,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def get_db_path() -> str:
-    return os.environ.get("TRUSTTRACE_PROVENANCE_DB", "data/provenance.db")
+    return os.environ.get("CYPHER_PROVENANCE_DB") or os.environ.get("TRUSTTRACE_PROVENANCE_DB", "data/provenance.db")
 
 def init_db():
     db_path = get_db_path()
@@ -123,6 +123,7 @@ def record_inference_event(event_data: Dict[str, Any], secret: Optional[bytes] =
         record_hash = hashlib.sha256(canonical_str.encode('utf-8')).hexdigest()
 
     db_path = get_db_path()
+    conn = None
     try:
         conn = sqlite3.connect(db_path, timeout=30.0)
         cursor = conn.cursor()
@@ -170,10 +171,12 @@ def record_inference_event(event_data: Dict[str, Any], secret: Optional[bytes] =
         return True, "Event recorded successfully", record_hash
     except sqlite3.IntegrityError:
         # Replay detected (record_hash or event_id already exists)
-        conn.close()
+        if conn:
+            conn.close()
         return False, "REPLAY_DETECTED", record_hash
     except Exception as e:
-        conn.close()
+        if conn:
+            conn.close()
         logger.error(f"Error recording provenance event: {e}")
         return False, str(e), record_hash
 

@@ -1,6 +1,6 @@
 # Threat Model
 
-TRUSTTRACE CV addresses specific threats in a multi-contributor Computer Vision pipeline. This threat model bounds the scope of the prototype's capabilities.
+CYPHER addresses specific threats in a multi-contributor Computer Vision pipeline. This threat model bounds the scope of the prototype's capabilities.
 
 ## Addressed Threats
 
@@ -42,7 +42,7 @@ Audit reports and API endpoints adhere to five explicit verdict states:
 
 ## Cryptographic Key Management & Integrity Guarantees
 
-1. **Zero Hardcoded Secrets**: All fallback signing secrets have been removed. Keys must be explicitly configured via `TRUSTTRACE_CV_HMAC_SECRET` and `TRUSTTRACE_CV_MANIFEST_SECRET`. Missing keys yield explicit failures or `NOT_ASSESSED` verdicts.
+1. **Zero Hardcoded Secrets**: All fallback signing secrets have been removed. Keys must be explicitly configured via `CYPHER_HMAC_SECRET` and `CYPHER_MANIFEST_SECRET` (or legacy `TRUSTTRACE_*` aliases). Missing keys yield explicit failures or `NOT_ASSESSED` verdicts.
 2. **Canonical Serialization**: Manifests and inference payloads are deterministically canonicalized (`sort_keys=True`, `separators=(',', ':')`) prior to digest computation and signing, eliminating JSON spacing discrepancies.
 3. **Timing-Attack Resistance**: All HMAC signature verifications strictly employ `hmac.compare_digest`.
 4. **Provenance Chain Verification**: Provenance records are ordered by actual append sequence (`rowid`), verifying sequence continuity (`sequence_number`), hash chaining (`previous_record_hash`), and payload integrity.

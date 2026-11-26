@@ -12,7 +12,7 @@ def run_art_robustness_probe(model_id: str, model_instance: Any, framework: str)
     evidence_list = []
     
     try:
-        import art
+        import art  # type: ignore
         # ART relies on wrapping models. 
         # For this prototype we will simulate evaluating the wrapper.
         # Check if the framework can be wrapped
@@ -62,9 +62,8 @@ def run_art_robustness_probe(model_id: str, model_instance: Any, framework: str)
             status="NOT_ASSESSED",
             severity="INFO",
             confidence_basis="N/A",
-            observations="ART capability cannot be assessed.",
-            limitations="Model framework unsupported by ART wrapper.",
-            reason=str(e)
+            observations=f"ART capability cannot be assessed: {e}",
+            limitations="Model framework unsupported by ART wrapper."
         )
         evidence_list.append(evidence)
         

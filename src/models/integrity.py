@@ -34,7 +34,7 @@ import hmac
 
 def get_manifest_secret() -> Optional[bytes]:
     """Retrieve manifest signing secret from environment, if configured."""
-    sec = os.environ.get("TRUSTTRACE_CV_MANIFEST_SECRET")
+    sec = os.environ.get("CYPHER_MANIFEST_SECRET") or os.environ.get("TRUSTTRACE_CV_MANIFEST_SECRET")
     return sec.encode("utf-8") if sec else None
 
 def sha256_file(path: Path) -> str:
@@ -56,7 +56,7 @@ def sign_manifest(manifest: Dict[str, str], secret: Optional[bytes] = None) -> D
         secret = get_manifest_secret()
     if not secret:
         raise ValueError(
-            "Signing secret required: set TRUSTTRACE_CV_MANIFEST_SECRET or pass explicit secret."
+            "Signing secret required: set CYPHER_MANIFEST_SECRET (or TRUSTTRACE_CV_MANIFEST_SECRET) or pass explicit secret."
         )
     payload_bytes = canonicalize_manifest(manifest)
     clean_manifest = {k: v for k, v in manifest.items() if k not in ("hmac_sig", "rsa_sig")}
@@ -67,17 +67,21 @@ def sign_manifest(manifest: Dict[str, str], secret: Optional[bytes] = None) -> D
 def sign_manifest_rsa(manifest: Dict[str, str], private_key_path: Optional[Path] = None) -> Dict[str, str]:
     """Sign manifest using RSA private key (PKCS1v15 + SHA-256). Key rotation unsupported."""
     if private_key_path is None:
-        env_key = os.environ.get("TRUSTTRACE_PRIVATE_KEY_PATH", "private_key.pem")
+        env_key = os.environ.get("CYPHER_PRIVATE_KEY_PATH") or os.environ.get("TRUSTTRACE_PRIVATE_KEY_PATH", "private_key.pem")
         private_key_path = Path(env_key)
     if not private_key_path.exists():
         raise FileNotFoundError(f"RSA private key not found at: {private_key_path}")
 
     from cryptography.hazmat.primitives.asymmetric import padding
+    from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
     from cryptography.hazmat.primitives import hashes, serialization
     import base64
 
     with open(private_key_path, "rb") as kf:
         private_key = serialization.load_pem_private_key(kf.read(), password=None)
+
+    if not isinstance(private_key, RSAPrivateKey):
+        raise ValueError("Loaded key is not an RSA private key.")
 
     payload_bytes = canonicalize_manifest(manifest)
     raw_sig = private_key.sign(payload_bytes, padding.PKCS1v15(), hashes.SHA256())
@@ -91,13 +95,14 @@ def verify_manifest(manifest: Dict[str, str], secret: Optional[bytes] = None, pu
     
     if "rsa_sig" in manifest:
         if public_key_path is None:
-            env_key = os.environ.get("TRUSTTRACE_PUBLIC_KEY_PATH") or os.environ.get("TRUSTTRACE_PUBLIC_KEY", "public_key.pem")
+            env_key = os.environ.get("CYPHER_PUBLIC_KEY_PATH") or os.environ.get("TRUSTTRACE_PUBLIC_KEY_PATH") or os.environ.get("TRUSTTRACE_PUBLIC_KEY", "public_key.pem")
             public_key_path = Path(env_key)
         if not public_key_path.exists():
             logger.warning(f"Public key path does not exist: {public_key_path}")
             return False, "ASYMMETRIC_KEY_MISSING"
         try:
             from cryptography.hazmat.primitives.asymmetric import padding
+            from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
             from cryptography.hazmat.primitives import hashes
             from cryptography.hazmat.primitives import serialization
             import base64
@@ -105,6 +110,9 @@ def verify_manifest(manifest: Dict[str, str], secret: Optional[bytes] = None, pu
             with open(public_key_path, "rb") as key_file:
                 public_key = serialization.load_pem_public_key(key_file.read())
             
+            if not isinstance(public_key, RSAPublicKey):
+                return False, "ASYMMETRIC"
+
             signature = base64.b64decode(manifest["rsa_sig"], validate=True)
             public_key.verify(
                 signature,
@@ -220,7 +228,7 @@ def _try_load_onnx(path: Path) -> Dict[str, Any]:
         "error": None,
     }
     try:
-        import onnx
+        import onnx  # type: ignore
         model = onnx.load(str(path))
         onnx.checker.check_model(model)
         meta["ir_version"] = model.ir_version
@@ -330,7 +338,7 @@ def inspect_model(
     if reference_manifest is not None:
         if "hmac_sig" in reference_manifest or "rsa_sig" in reference_manifest:
             # Check if there is a public key available for this project
-            pub_key_path = Path(os.environ.get("TRUSTTRACE_PUBLIC_KEY_PATH") or os.environ.get("TRUSTTRACE_PUBLIC_KEY", "public_key.pem"))
+            pub_key_path = Path(os.environ.get("CYPHER_PUBLIC_KEY_PATH") or os.environ.get("TRUSTTRACE_PUBLIC_KEY_PATH") or os.environ.get("TRUSTTRACE_PUBLIC_KEY", "public_key.pem"))
             sig_valid, sig_type = verify_manifest(reference_manifest, public_key_path=pub_key_path)
             
             if sig_type.endswith("_KEY_MISSING"):

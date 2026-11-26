@@ -39,7 +39,7 @@ import os
 
 def get_hmac_secret() -> Optional[bytes]:
     """Retrieve HMAC secret from environment, if configured."""
-    sec = os.environ.get("TRUSTTRACE_CV_HMAC_SECRET")
+    sec = os.environ.get("CYPHER_HMAC_SECRET") or os.environ.get("TRUSTTRACE_CV_HMAC_SECRET")
     return sec.encode("utf-8") if sec else None
 
 def canonicalize_inference_payload(record: Dict[str, Any]) -> bytes:
@@ -77,7 +77,7 @@ def record_inference(
         secret = get_hmac_secret()
     if not secret:
         raise ValueError(
-            "Signing key required: set TRUSTTRACE_CV_HMAC_SECRET or pass explicit secret."
+            "Signing key required: set CYPHER_HMAC_SECRET (or TRUSTTRACE_CV_HMAC_SECRET) or pass explicit secret."
         )
 
     record = {
@@ -133,7 +133,7 @@ def verify_inference_record(
                 "reason": "HMAC secret not provided or configured in environment."
             },
             "description": "HMAC signing key is unavailable; inference integrity cannot be cryptographically verified.",
-            "recommended_action": "Configure TRUSTTRACE_CV_HMAC_SECRET to enable cryptographic verification.",
+            "recommended_action": "Configure CYPHER_HMAC_SECRET to enable cryptographic verification.",
             "limitation": "Verification requires the original signing key.",
         }
 
@@ -217,7 +217,8 @@ def verify_inference_record(
 # ---------------------------------------------------------------------------
 
 def check_inference_replay(
-    incoming_record: Dict[str, Any]
+    incoming_record: Dict[str, Any],
+    seen_hashes: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Detect if an inference record is a replay of a previously seen result using SQLite persistent store.

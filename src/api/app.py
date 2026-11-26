@@ -1,7 +1,7 @@
 """
 src/api/app.py
 
-FastAPI backend for TRUSTTRACE CV.
+FastAPI backend for CYPHER.
 Serves the audit APIs consumed by the frontend UI.
 """
 
@@ -75,7 +75,7 @@ def safe_resolve(path_str: str, base_dir: Path = ROOT) -> Path:
         raise HTTPException(403, "Access denied: path traversal attempt detected.")
 
 app = FastAPI(
-    title="TrustTrace CV",
+    title="CYPHER",
     description="Computer Vision Assurance System",
     version="1.0.0",
 )
@@ -119,7 +119,7 @@ class UploadResponse(BaseModel):
 
 @app.post("/api/upload/dataset", response_model=UploadResponse)
 async def upload_dataset(file: UploadFile = File(...), format: str = Form("yolo")):
-    if not file.filename.endswith('.zip'):
+    if not file.filename or not file.filename.endswith('.zip'):
         raise HTTPException(400, "Only .zip files are supported for dataset uploads.")
     
     clean_filename = Path(file.filename).name
@@ -229,7 +229,7 @@ def download_html_report(audit_id: str):
         html_content = generate_offline_html_report(audit_id)
         from fastapi.responses import HTMLResponse
         return HTMLResponse(content=html_content, status_code=200, headers={
-            "Content-Disposition": f'attachment; filename="trusttrace_audit_{audit_id}.html"'
+            "Content-Disposition": f'attachment; filename="cypher_audit_{audit_id}.html"'
         })
     except FileNotFoundError:
         raise HTTPException(404, f"Audit report not found: {audit_id}")
@@ -349,7 +349,7 @@ def get_task_state(task_id: Optional[str] = None) -> Dict[str, Any]:
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "timestamp": time.time(), "service": "TRUSTTRACE CV"}
+    return {"status": "ok", "timestamp": time.time(), "service": "CYPHER"}
 
 @app.get("/api/audit/status")
 def audit_status(audit_id: Optional[str] = None):
@@ -744,7 +744,7 @@ def audit_full(req: FullAuditRequest):
     from src.integrations.cleanlab_adapter import run_cleanlab_object_detection
     cl_labels = ds_result.get("records", []) if req.dataset_path else []
     cl_preds = records_inf if req.inference_log else []
-    if cl_labels and cl_preds:
+    if req.dataset_path and cl_labels and cl_preds:
         cl_ev = run_cleanlab_object_detection(req.dataset_path, cl_labels, cl_preds)
         for e in cl_ev: all_ds_findings.append(e.to_dict())
         
@@ -815,5 +815,5 @@ def serve_ui():
         content = content.replace('href="style.css"', f'href="/static/style.css?v={time.time()}"')
         content = content.replace('src="app.js"', f'src="/static/app.js?v={time.time()}"')
         return HTMLResponse(content)
-    return HTMLResponse("<h1>TRUSTTRACE CV</h1><p>UI not found.</p>")
+    return HTMLResponse("<h1>CYPHER</h1><p>UI not found.</p>")
 

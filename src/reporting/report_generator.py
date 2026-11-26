@@ -1,7 +1,7 @@
 """
 src/reporting/report_generator.py
 
-Assurance report generation for TRUSTTRACE CV.
+Assurance report generation for CYPHER.
 
 Aggregates findings from dataset, model, and inference checks into a
 structured assurance report. Reports include:

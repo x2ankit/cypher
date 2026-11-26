@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class InTotoEvidenceChain:
     """
-    In-toto-style evidence chain for TRUSTTRACE workflow.
+    In-toto-style evidence chain for CYPHER workflow.
     Stages:
     1. dataset_ingest
     2. dataset_audit
@@ -31,7 +31,7 @@ class InTotoEvidenceChain:
             "materials": materials,
             "products": products,
             "command": command,
-            "environment": {"name": "trusttrace-cv"}
+            "environment": {"name": "cypher"}
         }
         
         # In a real in-toto setup, we would sign this link metadata.
@@ -49,7 +49,7 @@ class InTotoEvidenceChain:
 
 def generate_intoto_evidence(chain: InTotoEvidenceChain, report_id: str) -> List[Evidence]:
     """
-    Converts an in-toto chain into TRUSTTRACE Evidence.
+    Converts an in-toto chain into CYPHER Evidence.
     """
     evidence_list = []
     

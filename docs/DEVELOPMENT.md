@@ -2,7 +2,7 @@
 
 ## Code Organization
 
-TRUSTTRACE CV is separated into a frontend static UI and a FastAPI backend.
+CYPHER is separated into a frontend static UI and a FastAPI backend.
 - `src/ui/`: Contains the frontend `index.html`, `app.js`, and `style.css`.
 - `src/api/`: Contains the FastAPI backend application (`app.py`), sqlite logging database (`audit_db.py`).
 - `src/dataset/`: Contains parsing, inspection, and heuristic anomaly detection logic.
@@ -18,8 +18,8 @@ TRUSTTRACE CV is separated into a frontend static UI and a FastAPI backend.
 2. Ensure you have Conda or `venv` available and Python 3.10+ installed.
 3. Create the environment:
    ```bash
-   conda create -n trusttrace python=3.12
-   conda activate trusttrace
+   conda create -n cypher python=3.12
+   conda activate cypher
    pip install -r requirements.txt
    ```
 4. Start the backend:

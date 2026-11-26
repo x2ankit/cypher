@@ -423,7 +423,9 @@ def check_label_flipping(
 
             for i in range(m):
                 for j in range(k):
-                    iou = compute_bbox_iou(cand_boxes[i], ref_boxes[j])
+                    b_a = cand_boxes[i]
+                    b_b = ref_boxes[j]
+                    iou = compute_bbox_iou(b_a, b_b) if (b_a is not None and b_b is not None) else 0.0
                     cand_cid = cand_list[i].get("class_id", cand_list[i].get("category_id"))
                     ref_cid = ref_list[j].get("class_id", ref_list[j].get("category_id"))
                     # Small class penalty (0.05) ensures spatial proximity dominates,

@@ -1,7 +1,7 @@
 """
 scripts/generate_fixtures.py
 
-Deterministic fixture generator for TRUSTTRACE CV tests.
+Deterministic fixture generator for CYPHER tests.
 Uses a fixed random seed (42). Creates:
   - Clean YOLO dataset (10 images, labels)
   - Duplicate flooding dataset (3 duplicates injected)
@@ -20,6 +20,8 @@ License: MIT (project internal).
 
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ.setdefault("CYPHER_HMAC_SECRET", "test_hmac_secret_key_for_tests_32b")
+os.environ.setdefault("CYPHER_MANIFEST_SECRET", "test_manifest_secret_for_tests_32")
 os.environ.setdefault("TRUSTTRACE_CV_HMAC_SECRET", "test_hmac_secret_key_for_tests_32b")
 os.environ.setdefault("TRUSTTRACE_CV_MANIFEST_SECRET", "test_manifest_secret_for_tests_32")
 
@@ -29,6 +31,7 @@ import shutil
 import struct
 import zlib
 from pathlib import Path
+from typing import Optional, Tuple, Dict, Any, List
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -53,7 +56,7 @@ def _random_rgb() -> tuple:
 
 
 def _synthetic_image(width: int = 100, height: int = 100,
-                     bg: tuple = None, seed_extra: int = 0) -> Image.Image:
+                     bg: Optional[tuple] = None, seed_extra: int = 0) -> Image.Image:
     """Create a synthetic RGB image with random noise for high pixel entropy.
 
     Random-noise images have ~7-8 bits of Shannon entropy per channel, which
@@ -290,7 +293,7 @@ def generate_coco_annotations():
     })
 
     coco = {
-        "info": {"description": "TRUSTTRACE CV fixture", "year": 2026},
+        "info": {"description": "CYPHER fixture", "year": 2026},
         "licenses": [],
         "images": images_list,
         "annotations": annotations_list,
@@ -363,7 +366,10 @@ def generate_model_fixtures():
         if p.is_file():
             h = hashlib.sha256()
             with open(p, "rb") as fh:
-                for chunk in iter(lambda: fh.read(65536), b""):
+                while True:
+                    chunk = fh.read(65536)
+                    if not chunk:
+                        break
                     h.update(chunk)
             manifest[p.name] = h.hexdigest()
 
@@ -410,7 +416,7 @@ def generate_inference_fixtures():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    print("Generating TRUSTTRACE CV fixtures...")
+    print("Generating CYPHER fixtures...")
     generate_clean_dataset()
     generate_duplicate_dataset()
     generate_label_flip_dataset()

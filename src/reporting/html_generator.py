@@ -24,7 +24,7 @@ def generate_offline_html_report(audit_id: str) -> str:
     elif "records" in report:
         records = report["records"]
         
-    events_path = Path(os.environ.get("TRUSTTRACE_AUDIT_DB", str(ROOT / "audit_events.sqlite")))
+    events_path = Path(os.environ.get("CYPHER_AUDIT_DB") or os.environ.get("TRUSTTRACE_AUDIT_DB", str(ROOT / "audit_events.sqlite")))
     # To get events, we should ideally fetch from DB. 
     # But since we have access to the DB, we can just query it.
     import sqlite3
@@ -65,7 +65,7 @@ def generate_offline_html_report(audit_id: str) -> str:
 
     html = []
     html.append("<!DOCTYPE html>")
-    html.append("<html><head><meta charset='utf-8'><title>TRUSTTRACE CV Assurance Report</title>")
+    html.append("<html><head><meta charset='utf-8'><title>CYPHER Assurance Report</title>")
     html.append("<style>")
     html.append("""
         body { font-family: 'Segoe UI', system-ui, sans-serif; padding: 20px; background: #f8fafc; color: #1e293b; max-width: 1200px; margin: 0 auto; line-height: 1.6; }
@@ -88,7 +88,7 @@ def generate_offline_html_report(audit_id: str) -> str:
 
     # A. REPORT HEADER
     html.append(f"<div class='card'>")
-    html.append(f"<h1>TRUSTTRACE CV - Computer Vision Integrity Assurance Report</h1>")
+    html.append(f"<h1>CYPHER - Computer Vision Integrity Assurance Report</h1>")
     html.append(f"<table>")
     html.append(f"<tr><th>Audit ID</th><td>{audit_id}</td></tr>")
     html.append(f"<tr><th>Timestamp</th><td>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</td></tr>")

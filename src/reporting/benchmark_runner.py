@@ -11,7 +11,7 @@ def run_benchmarks():
     Executes all validations against the provided synthetic fixtures
     using pytest, and generates a table showing expected vs actual.
     """
-    logger.info("Running TRUSTTRACE CV Benchmark Suite...")
+    logger.info("Running CYPHER Benchmark Suite...")
     
     # We use pytest with JSON report to parse the results easily
     # Requires pytest-json-report

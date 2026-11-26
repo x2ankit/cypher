@@ -1,7 +1,7 @@
 """
 src/cli.py
 
-TRUSTTRACE CV command-line interface.
+CYPHER command-line interface.
 
 Usage examples:
   python -m src.cli audit-dataset --dataset-dir data/fixtures/clean
@@ -57,8 +57,8 @@ from src.reporting.report_generator import generate_report, save_report
 
 console = Console()
 app     = typer.Typer(
-    name="trusttrace-cv",
-    help="TrustTrace CV – Cryptographic Assurance System for Computer Vision Pipelines",
+    name="cypher",
+    help="CYPHER – Cryptographic Assurance System for Computer Vision Pipelines",
     no_args_is_help=True,
 )
 
@@ -127,7 +127,7 @@ def audit_dataset(
     seed:        int  = typer.Option(42, help="Random seed"),
 ) -> None:
     """Inspect a dataset for integrity, duplicates, OOD samples, and security anomalies."""
-    console.rule("[bold blue]TRUSTTRACE CV — Dataset Audit[/bold blue]")
+    console.rule("[bold blue]CYPHER — Dataset Audit[/bold blue]")
 
     if format == "yolo":
         images_dir = dataset_dir / "images"
@@ -191,7 +191,7 @@ def audit_model(
     seed:        int           = typer.Option(42),
 ) -> None:
     """Inspect a model artifact for integrity and detect substitution."""
-    console.rule("[bold blue]TRUSTTRACE CV — Model Audit[/bold blue]")
+    console.rule("[bold blue]CYPHER — Model Audit[/bold blue]")
 
     ref_manifest = load_manifest(manifest) if manifest and manifest.exists() else None
     if manifest and not manifest.exists():
@@ -268,7 +268,7 @@ def audit_inference(
     seed:       int  = typer.Option(42),
 ) -> None:
     """Verify inference records for tampering and replay attacks."""
-    console.rule("[bold blue]TRUSTTRACE CV — Inference Audit[/bold blue]")
+    console.rule("[bold blue]CYPHER — Inference Audit[/bold blue]")
 
     records = load_inference_log(log_path)
     if not records:
@@ -282,7 +282,7 @@ def audit_inference(
 
     for rec in records:
         findings.append(verify_inference_record(rec))
-        findings.append(check_inference_replay(rec, seen_hashes))
+        findings.append(check_inference_replay(rec))
         if rec.get("payload_hash"):
             seen_hashes.add(rec["payload_hash"])
         preds = rec.get("predictions", [])
@@ -318,7 +318,7 @@ def audit_all(
     seed:         int            = typer.Option(42),
 ) -> None:
     """Run the full audit pipeline: dataset + model + inference."""
-    console.rule("[bold blue]TRUSTTRACE CV — Full Audit Pipeline[/bold blue]")
+    console.rule("[bold blue]CYPHER — Full Audit Pipeline[/bold blue]")
 
     all_dataset_findings: list = []
     all_model_findings:   list = []
@@ -367,7 +367,7 @@ def audit_all(
         seen: set = set()
         for rec in records_inf:
             all_inf_findings.append(verify_inference_record(rec))
-            all_inf_findings.append(check_inference_replay(rec, seen))
+            all_inf_findings.append(check_inference_replay(rec))
             if rec.get("payload_hash"):
                 seen.add(rec["payload_hash"])
     else:

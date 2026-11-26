@@ -28,7 +28,7 @@ def load_images(dir_path: Path) -> list:
 
 def main():
     print("==================================================")
-    print("TRUSTTRACE CV: END-TO-END BEHAVIOR DEMO")
+    print("CYPHER: END-TO-END BEHAVIOR DEMO")
     print("==================================================")
     
     # 1. Look for a REAL local object detector, e.g. YOLOv5s.pt
@@ -49,14 +49,14 @@ def main():
     
     print(f"Loading reference model: {ref_model_path.name}")
     try:
-        ref_model, ref_type = load_model_for_inference(ref_model_path)
+        ref_model, ref_type = load_model_for_inference(str(ref_model_path))
     except Exception as e:
         print(f"BENCHMARK NOT ASSESSED: Could not load reference model: {e}")
         return
         
     print(f"Loading candidate model: {cand_model_path.name}")
     try:
-        cand_model, cand_type = load_model_for_inference(cand_model_path)
+        cand_model, cand_type = load_model_for_inference(str(cand_model_path))
     except Exception as e:
         print(f"BENCHMARK NOT ASSESSED: Could not load candidate model: {e}")
         return

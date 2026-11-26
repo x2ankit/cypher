@@ -1,4 +1,4 @@
-# TRUSTTRACE CV — Dataset Assurance & Reproducible Benchmarking Specification
+# CYPHER — Dataset Assurance & Reproducible Benchmarking Specification
 
 ## 1. Executive Summary & Objective
 
