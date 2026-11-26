@@ -27,9 +27,6 @@
 
 <br/>
 
-<img src="assets/ui.png" alt="CYPHER Dashboard" width="850" style="border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); border: 1px solid #e1e4e8;" />
-
-*The CYPHER interactive dashboard: Real-time mathematical audit traces, cryptographic verification, and offline forensic report generation.*
 
 </div>
 
